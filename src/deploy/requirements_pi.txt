@@ -1,0 +1,6 @@
+sudo apt update
+sudo apt install -y python3-venv python3-pip libatlas-base-dev
+python3 -m venv ~/venvs/fer-pi5 && source ~/venvs/fer-pi5/bin/activate
+python -m pip install --upgrade pip
+pip install "numpy==1.26.4" "tflite-runtime==2.14.0" "opencv-contrib-python==4.10.0.84"
+# 如果 opencv 轮子装不上： sudo apt install -y python3-opencv  （会回退到 dnn.onnx 路径，也能跑）
