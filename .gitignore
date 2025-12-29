@@ -25,6 +25,11 @@ __pycache__/
 # VSCode（如果用过）
 # ========================
 .vscode/
+data/csv/
+data/emotion-domestic/
+data/fer2013plus/
+data/MMAFEDB/
+data/Rafdb/
 
 # ========================
 # 其他建议忽略的大文件类型
