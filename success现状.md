@@ -1,11 +1,3 @@
-user:
-
-请你熟悉我现阶段的全部代码
-
----
-
-assistant:
-
 I have reviewed all the code you've uploaded. It consists of various modules and scripts designed for training and evaluating a facial emotion recognition model, with a focus on semi-supervised learning. Here's a breakdown of the key components:
 
 1. **Dataset and Data Augmentation (from `dataset.py`)**:
