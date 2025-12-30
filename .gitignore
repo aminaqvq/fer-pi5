@@ -35,11 +35,4 @@ data/Rafdb/
 # 其他建议忽略的大文件类型
 # ========================
 *.zip
-*.csv
 *.h5
-*.ckpt
-*.pth
-*.pt
-*.onnx
-*.tflite
-*.pb
