@@ -11,15 +11,6 @@ __pycache__/
 *.bak
 
 # ========================
-# 虚拟环境和依赖管理
-# ========================
-.env/
-.venv/
-env/
-venv/
-environment/
-
-# ========================
 # Jupyter / Notebook 临时文件
 # ========================
 .ipynb_checkpoints/
@@ -34,23 +25,14 @@ environment/
 # VSCode（如果用过）
 # ========================
 .vscode/
-
-# ========================
-# 数据集 / 模型 / 检查点
-# ========================
-data/
-checkpoints/
-docs/
+data/csv/
+data/emotion-domestic/
+data/fer2013plus/
+data/MMAFEDB/
+data/Rafdb/
 
 # ========================
 # 其他建议忽略的大文件类型
 # ========================
 *.zip
-*.csv
 *.h5
-*.ckpt
-*.pth
-*.pt
-*.onnx
-*.tflite
-*.pb

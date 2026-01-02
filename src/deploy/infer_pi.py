@@ -5,8 +5,8 @@ import argparse
 from collections import deque
 
 # ===== 常量配置 =====
-TFLITE_PATH = r"D:\fer-pi5\checkpoints\exported\tf_model\model.sim_float32.tflite"
-YUNET_PATH = r"D:\fer-pi5\checkpoints\exported\face_detection_yunet_2023mar.onnx"
+TFLITE_PATH = r"/home/amina/workspaces/fer-pi5/checkpoints/exported/tf_model/model.sim_float16.tflite"
+YUNET_PATH = r"/home/amina/workspaces/fer-pi5/checkpoints/exported/face_detection_yunet_2023mar.onnx"
 IMG_SIZE = 224
 LABELS = ["anger", "disgust", "fear", "happy", "sad", "surprise", "neutral"]
 
