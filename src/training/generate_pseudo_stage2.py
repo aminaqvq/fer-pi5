@@ -17,12 +17,12 @@ from model_mbv3 import get_model
 # ============================================================
 CFG: Dict[str, object] = dict(
     # 基础路径（按需要修改）
-    csv_base=r"D:\fer-pi5\data\csv",
-    unlabeled_csv=r"D:\fer-pi5\data\csv\unlabeled.csv",
+    csv_base=r"F:\fer-pi5\data\csv",
+    unlabeled_csv=r"F:\fer-pi5\data\csv\unlabeled.csv",
     img_base=None,
 
     # 教师模型 ckpt（初始为 stage1 的模型）
-    teacher_ckpt=r"D:\fer-pi5\checkpoints\best_model_stage1.pth",
+    teacher_ckpt=r"F:\fer-pi5\checkpoints\best_model_stage1.pth",
 
     # 伪标签输出（本脚本生成的二阶段伪标签）
     out_csv_name="pseudo_labeled_stage2.csv",
@@ -43,7 +43,7 @@ CFG: Dict[str, object] = dict(
 
     # 其他
     seed=42,
-    save_dir=r"D:\fer-pi5\data\csv",
+    save_dir=r"F:\fer-pi5\data\csv",
 )
 
 

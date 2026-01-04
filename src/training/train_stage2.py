@@ -1,79 +1,74 @@
-# -*- coding: utf-8 -*-
-"""
-Stage 2：FER 监督训练（真实标签 + 伪标签）
-------------------------------------------------
-- 使用：
-    * 真实标注的 train.csv
-    * generate_pseudo_stage1.py 导出的 pseudo_labeled.csv
-- 全程纯监督训练（不再做在线半监督），比原 train.py 快很多
-- 继续使用：
-    * class-balanced 有监督 loss（effective number）
-    * 轻量数据增强（来自 dataset.py）
-    * Cosine + warmup 学习率
-    * AMP + 梯度裁剪 + early stopping
-"""
-
 import os
 import csv
 import math
 import time
 import random
-from typing import Dict, Iterable
+from typing import Dict, List, Tuple, Optional
 
 import numpy as np
 import torch
 import torch.nn.functional as F
 from torch.optim import AdamW
-from torch.utils.data import ConcatDataset, Subset, DataLoader
+from torch.utils.data import DataLoader, Dataset, ConcatDataset
 
-from dataset import FER2013Hybrid, IMG_SIZE, get_dataloaders_hybrid
+from torch.amp import autocast
+from torch.cuda.amp import GradScaler
+
+from dataset import FER2013Hybrid, IMG_SIZE
 from model_mbv3 import get_model
-from evaluate import run_evaluation
+
 
 # -------------------------
-# 配置
+# 配置（按需修改）
 # -------------------------
 CFG: Dict[str, object] = dict(
-    # ===== 路径（请按需修改） =====
-    csv_base=r"D:\fer-pi5\data\csv",           # 包含 train/val/test 的目录
-    train_csv=r"D:\fer-pi5\data\csv\train.csv",
-    pseudo_csv=r"D:\fer-pi5\data\csv\pseudo_labeled.csv",  # generate_pseudo_stage1.py 的输出
-    img_base=None,                             # 若有外部图片路径，可设置根目录
-    save_dir=r"D:\fer-pi5\checkpoints",
-    best_ckpt=r"D:\fer-pi5\checkpoints\best_model_stage2.pth",
-    log_csv=r"D:\fer-pi5\checkpoints\train_stage2_log.csv",
+    # 数据路径
+    train_csv=r"F:\fer-pi5\data\csv\train.csv",
+    val_csv=r"F:\fer-pi5\data\csv\val.csv",
+    test_csv=r"F:\fer-pi5\data\csv\test.csv",
+    pseudo_csv=r"F:\fer-pi5\data\csv\pseudo_labeled.csv",  # 需要包含列：label,pixels,path,Usage,conf
+    img_base=None,  # 若 path 是相对路径，这里填图片根目录
 
-    # ===== 设备 & 训练 =====
+    # 初始化（强烈建议：加载 stage1 best）
+    init_ckpt=r"F:\fer-pi5\checkpoints\best_model_stage1.pth",
+
+    # 输出
+    save_dir=r"F:\fer-pi5\checkpoints",
+    best_ckpt=r"F:\fer-pi5\checkpoints\best_model_stage2.pth",
+    log_csv=r"F:\fer-pi5\checkpoints\train_stage2_log.csv",
+
+    # 训练
     device="cuda" if torch.cuda.is_available() else "cpu",
-    epochs=200,          # 上限，配合 early stop
+    epochs=200,
     batch_size=128,
     num_workers=4,
     lr=5e-4,
     lr_floor=1e-6,
     warmup_epochs=2,
+    weight_decay=1e-4,
 
-    # ===== 数据加载 =====
-    pin_memory=True,
-    persistent_workers=True,
-    prefetch_factor=2,
-
-    # 类别不平衡处理（与 Stage1 类似）
-    beta=0.995,            # effective number
+    # 类别不平衡（CB loss）
+    beta=0.995,
     label_smoothing=0.04,
+    # 计算 class weight 时是否把 pseudo 也算进去（更推荐 False：只用真实数据统计更稳）
+    cb_include_pseudo=False,
 
-    # 是否启用 mixup（可选，默认关闭）
-    use_mixup=False,
-    mixup_alpha=0.2,
+    # pseudo(conf) 策略
+    pseudo_conf_min=0.0,         # 伪标签额外过滤阈值（pseudo 生成阶段已经过滤过的话可设 0）
+    pseudo_conf_power=2.0,       # conf 幂次：>1 会“压低低置信度样本”的影响
+    pseudo_loss_scale=1.0,       # 伪标签整体权重（常见 0.5~1.0）
+    pseudo_rampup_epochs=5,      # 前 N 个 epoch 逐步引入 pseudo（更稳）
 
     # 稳定性
     use_amp=True,
     grad_clip=True,
     max_norm=1.0,
 
-    # 验证与早停
+    # 早停
     val_interval=1,
     early_stop_patience=20,
 
+    # 其它
     seed=42,
 )
 
@@ -81,7 +76,7 @@ AMP_DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 
 
 # -------------------------
-# 小工具
+# 工具函数
 # -------------------------
 def seed_all(seed: int = 42):
     random.seed(seed)
@@ -90,9 +85,7 @@ def seed_all(seed: int = 42):
     torch.cuda.manual_seed_all(seed)
 
 
-def cosine_warmup_lr(base_lr: float, floor: float,
-                     warmup_epochs: int, total_epochs: int, epoch: int) -> float:
-    """线性 warmup + cosine 衰减"""
+def cosine_warmup_lr(base_lr: float, floor: float, warmup_epochs: int, total_epochs: int, epoch: int) -> float:
     if epoch < warmup_epochs:
         return base_lr * float(epoch + 1) / max(1, warmup_epochs)
     progress = (epoch - warmup_epochs) / max(1, total_epochs - warmup_epochs)
@@ -116,122 +109,122 @@ def macro_f1(logits: torch.Tensor, target: torch.Tensor, C: int = 7) -> float:
     return float(np.mean(f1s))
 
 
-def _iter_labels_from_dataset(ds) -> Iterable[int]:
-    """
-    通用地遍历 Dataset 的标签，支持：
-    - FER2013Hybrid（带 .samples）
-    - Subset
-    - ConcatDataset
-    - 其他 Dataset（fallback：逐个 __getitem__）
-    """
-    from torch.utils.data import ConcatDataset as _CD
-
-    if isinstance(ds, _CD):
-        for sub in ds.datasets:
-            for y in _iter_labels_from_dataset(sub):
-                yield y
-        return
-
-    if hasattr(ds, "samples"):
-        for s in ds.samples:
-            y = int(s.get("label", -1))
-            if y >= 0:
-                yield y
-        return
-
-    if isinstance(ds, Subset):
-        base, idxs = ds.dataset, list(ds.indices)
-        if hasattr(base, "samples"):
-            for i in idxs:
-                y = int(base.samples[i].get("label", -1))
-                if y >= 0:
-                    yield y
-            return
-        for i in idxs:
-            _, y = base[i]
-            y = int(y)
-            if y >= 0:
-                yield y
-        return
-
-    for i in range(len(ds)):
-        item = ds[i]
-        if isinstance(item, tuple) and len(item) >= 2:
-            y = int(item[1])
-            if y >= 0:
-                yield y
-
-
 def _make_loader(ds, batch_size, shuffle, cfg) -> DataLoader:
     kwargs = dict(
-        batch_size=batch_size,
-        shuffle=shuffle,
+        batch_size=int(batch_size),
+        shuffle=bool(shuffle),
         num_workers=int(cfg.get("num_workers", 4)),
-        pin_memory=bool(cfg.get("pin_memory", True)),
-        drop_last=shuffle,  # train: True, val/test: False
+        pin_memory=True,
+        drop_last=bool(shuffle),
     )
     if kwargs["num_workers"] > 0:
         kwargs["prefetch_factor"] = int(cfg.get("prefetch_factor", 2))
-        kwargs["persistent_workers"] = bool(cfg.get("persistent_workers", True))
+        kwargs["persistent_workers"] = True
     return DataLoader(ds, **kwargs)
 
 
 # -------------------------
-# 一个 epoch 的训练
+# 读取 pseudo conf（按 Usage 过滤）
 # -------------------------
-def train_one_epoch(model, optimizer, loader, device, epoch, cfg, criterion_sup, scaler=None):
+def read_pseudo_confs(csv_path: str, usage_keep=("pseudo", "unlabeled", "u"), conf_min: float = 0.0) -> List[float]:
+    confs: List[float] = []
+    with open(csv_path, "r", encoding="utf-8") as f:
+        reader = csv.DictReader(f)
+        fieldnames = [fn.lower() for fn in (reader.fieldnames or [])]
+        has_usage = ("usage" in fieldnames)
+        for row in reader:
+            usage = (row.get("Usage") or row.get("usage") or "").lower()
+            if has_usage and (usage not in usage_keep):
+                continue
+            c = row.get("conf", row.get("Conf", None))
+            try:
+                c = float(c) if c is not None else 1.0
+            except Exception:
+                c = 1.0
+            if c < float(conf_min):
+                continue
+            confs.append(float(c))
+    return confs
+
+
+# -------------------------
+# Dataset wrapper：给每个样本附带 weight
+# -------------------------
+class WeightedDataset(Dataset):
+    def __init__(self, base: Dataset, weights: Optional[List[float]] = None, default_w: float = 1.0):
+        self.base = base
+        self.default_w = float(default_w)
+        if weights is None:
+            self.weights = None
+        else:
+            assert len(weights) == len(base), f"weights({len(weights)}) != dataset({len(base)})"
+            self.weights = [float(w) for w in weights]
+
+    def __len__(self):
+        return len(self.base)
+
+    def __getitem__(self, idx: int):
+        x, y = self.base[idx]
+        w = self.default_w if (self.weights is None) else self.weights[idx]
+        return x, y, torch.tensor(w, dtype=torch.float32)
+
+
+# -------------------------
+# 训练 / 验证
+# -------------------------
+def train_one_epoch(model, optimizer, loader, device, epoch, cfg, class_w: Optional[torch.Tensor], scaler: GradScaler):
     model.train()
     total_loss = total_acc = total_f1 = 0.0
-    total_n = 0
+    total_wsum = 0.0
 
-    use_mixup = bool(cfg.get("use_mixup", False))
-    alpha = float(cfg.get("mixup_alpha", 0.2))
+    use_amp = bool(cfg.get("use_amp", False)) and str(device).startswith("cuda")
 
-    for xb, yb in loader:
+    # pseudo rampup
+    ramp_epochs = int(cfg.get("pseudo_rampup_epochs", 0))
+    ramp = 1.0 if ramp_epochs <= 0 else min(1.0, float(epoch + 1) / float(ramp_epochs))
+
+    for xb, yb, wb in loader:
         xb = xb.to(device, non_blocking=True)
         yb = yb.to(device, non_blocking=True)
+        wb = wb.to(device, non_blocking=True)
+
+        # wb 里已经包含 pseudo_loss_scale/conf_power（在构造 pseudo weights 时做），这里只做 rampup
+        wb = wb * ramp
 
         optimizer.zero_grad(set_to_none=True)
 
-        if use_mixup:
-            lam = np.random.beta(alpha, alpha)
-            idx = torch.randperm(xb.size(0), device=device)
-            mixed = lam * xb + (1 - lam) * xb[idx]
+        with autocast(device_type="cuda", enabled=use_amp):
+            logits = model(xb)
 
-            with torch.amp.autocast(AMP_DEVICE, enabled=bool(cfg.get("use_amp", False))):
-                logits = model(mixed)
-                loss = lam * criterion_sup(logits, yb) + (1 - lam) * criterion_sup(logits, yb[idx])
-        else:
-            with torch.amp.autocast(AMP_DEVICE, enabled=bool(cfg.get("use_amp", False))):
-                logits = model(xb)
-                loss = criterion_sup(logits, yb)
+            # per-sample CE
+            loss_vec = F.cross_entropy(
+                logits, yb,
+                weight=class_w,
+                label_smoothing=float(cfg.get("label_smoothing", 0.0)),
+                reduction="none",
+            )
+            # 加权归一化（避免 batch 里权重变化导致 loss 尺度漂移）
+            wsum = wb.sum().clamp_min(1e-6)
+            loss = (loss_vec * wb).sum() / wsum
 
-        if scaler is not None:
-            scaler.scale(loss).backward()
-            if bool(cfg.get("grad_clip", False)):
-                scaler.unscale_(optimizer)
-                torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=float(cfg.get("max_norm", 1.0)))
-            scaler.step(optimizer)
-            scaler.update()
-        else:
-            loss.backward()
-            if bool(cfg.get("grad_clip", False)):
-                torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=float(cfg.get("max_norm", 1.0)))
-            optimizer.step()
+        scaler.scale(loss).backward()
+        if bool(cfg.get("grad_clip", False)):
+            scaler.unscale_(optimizer)
+            torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=float(cfg.get("max_norm", 1.0)))
+        scaler.step(optimizer)
+        scaler.update()
 
         with torch.no_grad():
-            bs = yb.size(0)
-            total_loss += float(loss.item()) * bs
-            total_acc += accuracy(logits, yb) * bs
-            total_f1 += macro_f1(logits, yb) * bs
-            total_n += bs
+            bs_w = float(wsum.item())
+            total_loss += float(loss.item()) * bs_w
+            total_acc += accuracy(logits, yb) * bs_w
+            total_f1 += macro_f1(logits, yb) * bs_w
+            total_wsum += bs_w
 
-    return total_loss / max(1, total_n), total_acc / max(1, total_n), total_f1 / max(1, total_n)
+    denom = max(1e-6, total_wsum)
+    return total_loss / denom, total_acc / denom, total_f1 / denom
 
 
-# -------------------------
-# 验证
-# -------------------------
 @torch.no_grad()
 def evaluate_simple(model, loader, device):
     model.eval()
@@ -243,6 +236,7 @@ def evaluate_simple(model, loader, device):
         yb = yb.to(device, non_blocking=True)
         logits = model(xb)
         loss = F.cross_entropy(logits, yb)
+
         bs = yb.size(0)
         total_loss += float(loss.item()) * bs
         total_acc += accuracy(logits, yb) * bs
@@ -252,9 +246,41 @@ def evaluate_simple(model, loader, device):
     return total_loss / max(1, total_n), total_acc / max(1, total_n), total_f1 / max(1, total_n)
 
 
-# -------------------------
-# 主流程
-# -------------------------
+def compute_cb_weights(labels: List[int], num_classes: int, beta: float, device: str) -> torch.Tensor:
+    counts = np.bincount(np.array(labels, dtype=np.int64), minlength=num_classes).astype(np.float32)
+    eff = 1.0 - np.power(beta, counts)
+    cb = (1.0 - beta) / np.maximum(eff, 1e-8)
+    cb = cb / cb.mean()
+    return torch.tensor(cb, dtype=torch.float32, device=device)
+
+
+def extract_labels(ds: Dataset) -> List[int]:
+    labs: List[int] = []
+    for i in range(len(ds)):
+        _, y = ds[i]
+        y = int(y)
+        if y >= 0:
+            labs.append(y)
+    return labs
+
+
+def load_ckpt_into_model(model: torch.nn.Module, ckpt_path: str, device: str):
+    if not ckpt_path:
+        return
+    if not os.path.exists(ckpt_path):
+        print(f"[stage2] init_ckpt not found: {ckpt_path} (skip)")
+        return
+    state = torch.load(ckpt_path, map_location="cpu")
+    if isinstance(state, dict) and "state_dict" in state:
+        state = state["state_dict"]
+    missing, unexpected = model.load_state_dict(state, strict=False)
+    print(f"[stage2] Loaded init_ckpt: {ckpt_path}")
+    if missing:
+        print(f"[stage2]  missing keys: {len(missing)}")
+    if unexpected:
+        print(f"[stage2]  unexpected keys: {len(unexpected)}")
+
+
 def main():
     os.makedirs(str(CFG["save_dir"]), exist_ok=True)
     for k in ("log_csv", "best_ckpt"):
@@ -266,103 +292,83 @@ def main():
     device = str(CFG["device"])
     print(f"Device: {device}", flush=True)
 
-    # ===== 构建 Train (真实 + 伪标签) =====
-    train_csv = os.path.abspath(str(CFG["train_csv"]))
-    pseudo_csv = os.path.abspath(str(CFG["pseudo_csv"]))
-
-    print(f"[stage2] Using train CSV:  {train_csv}")
-    print(f"[stage2] Using pseudo CSV: {pseudo_csv}")
-
+    # ----- datasets -----
     img_root = None if CFG["img_base"] in (None, "", "None") else str(CFG["img_base"])
 
-    # 真实标注
-    ds_train_real = FER2013Hybrid(
-        csv_path=train_csv,
-        img_root=img_root,
-        split="train",
-        img_size=int(IMG_SIZE),
-        two_views=False,
-        include_label=True,
-    )
+    train_csv = os.path.abspath(str(CFG["train_csv"]))
+    pseudo_csv = os.path.abspath(str(CFG["pseudo_csv"]))
+    val_csv = os.path.abspath(str(CFG["val_csv"]))
+    test_csv = os.path.abspath(str(CFG["test_csv"]))
 
-    # 伪标签：使用 split="unlabeled" 来通过 Usage 过滤，然后把 split 改成 "train"
-    ds_pseudo = FER2013Hybrid(
-        csv_path=pseudo_csv,
-        img_root=img_root,
-        split="unlabeled",    # Usage 列为 "pseudo" → 会被选中
-        img_size=int(IMG_SIZE),
-        two_views=False,
-        include_label=True,   # 保留 label
-    )
-    ds_pseudo.split = "train"   # 让 __getitem__ 使用训练增强（t_train）
+    ds_real = FER2013Hybrid(train_csv, img_root, "train", img_size=int(IMG_SIZE), two_views=False, include_label=True)
 
-    print(f"[stage2] Real train samples:   {len(ds_train_real)}")
+    # pseudo：用 split="unlabeled" 过滤 Usage=pseudo，然后把 split 改成 train 用训练增强（你原脚本也这么做）
+    ds_pseudo = FER2013Hybrid(pseudo_csv, img_root, "unlabeled", img_size=int(IMG_SIZE), two_views=False, include_label=True)
+    ds_pseudo.split = "train"
+
+    # 读 conf 并构造权重（conf -> conf^power -> *scale）
+    conf_min = float(CFG.get("pseudo_conf_min", 0.0))
+    conf_power = float(CFG.get("pseudo_conf_power", 1.0))
+    pseudo_scale = float(CFG.get("pseudo_loss_scale", 1.0))
+
+    pseudo_confs = read_pseudo_confs(pseudo_csv, conf_min=conf_min)
+    if len(pseudo_confs) != len(ds_pseudo):
+        raise RuntimeError(f"Pseudo conf length mismatch: confs={len(pseudo_confs)} ds_pseudo={len(ds_pseudo)}. "
+                           f"检查 pseudo_csv 的 Usage 过滤/是否有空行。")
+
+    pseudo_weights = [(max(0.0, min(1.0, c)) ** conf_power) * pseudo_scale for c in pseudo_confs]
+
+    ds_real_w = WeightedDataset(ds_real, weights=None, default_w=1.0)
+    ds_pseudo_w = WeightedDataset(ds_pseudo, weights=pseudo_weights, default_w=1.0)
+
+    ds_train = ConcatDataset([ds_real_w, ds_pseudo_w])
+    train_loader = _make_loader(ds_train, CFG["batch_size"], True, CFG)
+
+    ds_val = FER2013Hybrid(val_csv, img_root, "val", img_size=int(IMG_SIZE), two_views=False, include_label=True)
+    ds_test = FER2013Hybrid(test_csv, img_root, "test", img_size=int(IMG_SIZE), two_views=False, include_label=True)
+    val_loader = _make_loader(ds_val, CFG["batch_size"], False, CFG)
+    test_loader = _make_loader(ds_test, CFG["batch_size"], False, CFG)
+
+    print(f"[stage2] Real train samples:   {len(ds_real)}")
     print(f"[stage2] Pseudo train samples: {len(ds_pseudo)}")
+    print(f"[stage2] Val samples:          {len(ds_val)}")
+    print(f"[stage2] Test samples:         {len(ds_test)}", flush=True)
 
-    ds_train_all = ConcatDataset([ds_train_real, ds_pseudo])
-    train_loader = _make_loader(
-        ds_train_all,
-        batch_size=int(CFG["batch_size"]),
-        shuffle=True,
-        cfg=CFG,
-    )
+    # ----- model -----
+    model = get_model("large", num_classes=7, pretrained=True, device=device, verbose=True, compile_model=False)
 
-    # ===== 构建 Val / Test（直接复用 get_dataloaders_hybrid） =====
-    _, val_loader, test_loader, _ = get_dataloaders_hybrid(
-        csv_base=str(CFG["csv_base"]),
-        img_base=img_root,
-        batch_size=int(CFG["batch_size"]),
-        num_workers=int(CFG["num_workers"]),
-        pin_memory=bool(CFG.get("pin_memory", True)),
-        persistent_workers=bool(CFG.get("persistent_workers", True)),
-        prefetch_factor=int(CFG.get("prefetch_factor", 2)),
-        dynamic_sampling=False,     # 验证与测试不需要
-        per_class=None,
-        include_unlabeled=False,
-        unlabeled_two_views=False,
-    )
-    print(f"[stage2] Val samples:  {len(val_loader.dataset)}")
-    print(f"[stage2] Test samples: {len(test_loader.dataset)}")
+    # init from stage1 best
+    load_ckpt_into_model(model, str(CFG.get("init_ckpt", "")), device)
 
-    # ===== 构建模型 =====
-    model = get_model(
-        variant="large",
-        num_classes=7,
-        pretrained=True,   # 可以使用 ImageNet 预训练
-        device=device,
-        verbose=True,
-        compile_model=False,
-    )
+    # ----- class-balanced weights -----
+    beta = float(CFG.get("beta", 0.999))
+    include_pseudo = bool(CFG.get("cb_include_pseudo", False))
+    if include_pseudo:
+        # 用真实+伪标签统计（不一定更好，默认 False）
+        real_labels = extract_labels(ds_real)
+        pseudo_labels = extract_labels(ds_pseudo)
+        labels = real_labels + pseudo_labels
+        print(f"[stage2] CB labels: real({len(real_labels)}) + pseudo({len(pseudo_labels)})")
+    else:
+        labels = extract_labels(ds_real)
+        print(f"[stage2] CB labels: real only ({len(labels)})")
 
-    # ===== 类别权重（真实 + 伪标签一起统计） =====
-    labels = list(_iter_labels_from_dataset(ds_train_all))
-    counts = np.bincount(np.array(labels, dtype=np.int64), minlength=7).astype(np.float32)
-    print("[stage2] Class counts (real + pseudo):", counts.tolist(), flush=True)
+    class_w = compute_cb_weights(labels, num_classes=7, beta=beta, device=device)
+    print("[stage2] Class weights (CB):", class_w.detach().cpu().numpy().tolist(), flush=True)
 
-    beta = float(CFG["beta"])
-    eff_num = (1.0 - beta) / (1.0 - np.power(beta, counts + 1e-8))
-    cb = eff_num / eff_num.mean()
-    class_w = torch.tensor(cb, dtype=torch.float32, device=device)
-    print("[stage2] Class weights (CB):", cb.tolist(), flush=True)
+    # ----- optim / amp -----
+    optimizer = AdamW(model.parameters(), lr=float(CFG["lr"]), weight_decay=float(CFG["weight_decay"]))
+    use_amp = bool(CFG.get("use_amp", False)) and str(device).startswith("cuda")
+    scaler = GradScaler(enabled=use_amp)
 
-    def criterion_sup(logits, target):
-        return F.cross_entropy(
-            logits, target,
-            weight=class_w,
-            label_smoothing=float(CFG["label_smoothing"]),
-        )
-
-    # ===== 优化器 & AMP =====
-    optimizer = AdamW(model.parameters(), lr=float(CFG["lr"]), weight_decay=1e-4)
-    scaler = torch.amp.GradScaler(AMP_DEVICE, enabled=bool(CFG.get("use_amp", False)))
-
-    # ===== 日志表头 =====
+    # ----- log header -----
     if not os.path.exists(str(CFG["log_csv"])):
         with open(str(CFG["log_csv"]), "w", newline="", encoding="utf-8") as f:
             csv.writer(f).writerow([
-                "epoch", "lr",
+                "time", "epoch", "lr",
                 "train_loss", "train_acc", "train_f1",
                 "val_loss", "val_acc", "val_f1",
+                "test_loss", "test_acc", "test_f1",
             ])
 
     best_f1 = -1.0
@@ -370,37 +376,33 @@ def main():
     total_epochs = int(CFG["epochs"])
 
     for epoch in range(total_epochs):
-        lr = cosine_warmup_lr(
-            float(CFG["lr"]), float(CFG["lr_floor"]),
-            int(CFG["warmup_epochs"]), total_epochs, epoch,
-        )
+        lr = cosine_warmup_lr(float(CFG["lr"]), float(CFG["lr_floor"]), int(CFG["warmup_epochs"]), total_epochs, epoch)
         for pg in optimizer.param_groups:
             pg["lr"] = lr
 
         t0 = time.time()
-        tr_loss, tr_acc, tr_f1 = train_one_epoch(
-            model, optimizer, train_loader, device, epoch, CFG, criterion_sup, scaler,
-        )
+        tr_loss, tr_acc, tr_f1 = train_one_epoch(model, optimizer, train_loader, device, epoch, CFG, class_w, scaler)
         va_loss, va_acc, va_f1 = evaluate_simple(model, val_loader, device)
+        te_loss, te_acc, te_f1 = evaluate_simple(model, test_loader, device)
         elapsed = time.time() - t0
 
         print(
             f"[stage2] Epoch {epoch+1}/{total_epochs} | lr {lr:.6f} | "
             f"Train L/A/F1 {tr_loss:.4f}/{tr_acc:.4f}/{tr_f1:.4f} | "
-            f"Val L/A/F1 {va_loss:.4f}/{va_acc:.4f}/{va_f1:.4f} | "
+            f"Val   L/A/F1 {va_loss:.4f}/{va_acc:.4f}/{va_f1:.4f} | "
+            f"Test  L/A/F1 {te_loss:.4f}/{te_acc:.4f}/{te_f1:.4f} | "
             f"{elapsed:.1f}s",
-            flush=True,
+            flush=True
         )
 
-        # 写日志
         with open(str(CFG["log_csv"]), "a", newline="", encoding="utf-8") as f:
             csv.writer(f).writerow([
-                epoch + 1, lr,
+                int(time.time()), epoch + 1, lr,
                 tr_loss, tr_acc, tr_f1,
                 va_loss, va_acc, va_f1,
+                te_loss, te_acc, te_f1,
             ])
 
-        # 选择 best（Val F1）
         if va_f1 > best_f1:
             best_f1 = va_f1
             torch.save(model.state_dict(), str(CFG["best_ckpt"]))
@@ -412,28 +414,7 @@ def main():
                 print("[stage2] Early stop: no improvement.", flush=True)
                 break
 
-    # ===== 结束：用 evaluate.py 做一次详细评估（TTA + 混淆矩阵等） =====
-    try:
-        eval_cfg = dict(
-            device=device,
-            csv_base=str(CFG["csv_base"]),
-            img_base=CFG["img_base"],
-            save_dir=str(CFG["save_dir"]),
-            best_ckpt=str(CFG["best_ckpt"]),
-            batch_size=int(CFG["batch_size"]),
-            num_workers=4,
-            pin_memory=True,
-            persistent_workers=False,
-            per_class_limit=5000,
-            model_variant="large",
-        )
-        _ = run_evaluation(
-            eval_cfg,
-            dict(split="both", tta=True, ckpt=str(CFG["best_ckpt"])),
-        )
-        print("[stage2] [final-eval] confusion matrix & per-class metrics written.", flush=True)
-    except Exception as e:
-        print(f"[stage2] [final-eval] skipped: {e}", flush=True)
+    print("\nTraining finished.", flush=True)
 
 
 if __name__ == "__main__":
