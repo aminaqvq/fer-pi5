@@ -1,17 +1,3 @@
-# -*- coding: utf-8 -*-
-"""
-Stratified split with large unlabeled pool.
-支持两种扩充 unlabeled 的方式：
-- MODE="ratio":   每类按比例预留到 unlabeled，再对剩余做严格 8:1:1（整份配额）
-- MODE="target":  按目标总量为 unlabeled 分配各类配额，再对剩余做严格 8:1:1（整份配额）
-
-严格 8:1:1 = 对每个类别的 labeled 部分，使用整份配额（每份10条 => Train 8 / Val 1 / Test 1）。
-余数（不足10的碎片）也并入 unlabeled，保证三集的 8:1:1 不被破坏。
-
-输出：
-- train.csv / val.csv / test.csv / unlabeled.csv
-"""
-
 import os
 import math
 import pandas as pd

@@ -1,15 +1,3 @@
-"""
-Stage 1：FER 监督训练（用于产出一个“老师模型”）
-- 只使用 train.csv（有标签部分），不使用 unlabeled.csv
-- 利用：
-    * 动态采样（per_class_limit）
-    * effective number 类别权重
-    * 轻量的数据增强（沿用 dataset.py）
-    * Cosine + warmup 学习率
-    * 可选 AMP 和梯度裁剪
-- 训练完成后，会保存 best_model_stage1.pth
-"""
-
 import os
 import csv
 import math
