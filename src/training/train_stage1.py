@@ -31,11 +31,11 @@ from model_mbv3 import get_model            # 复用 MobileNetV3 定义
 # -------------------------
 CFG: Dict[str, object] = dict(
     # 路径（按需改成你自己的）
-    csv_base=r"D:\fer-pi5\data\csv",
+    csv_base=r"F:\fer-pi5\data\csv",
     img_base=None,
-    save_dir=r"D:\fer-pi5\checkpoints",
-    best_ckpt=r"D:\fer-pi5\checkpoints\best_model_stage1.pth",
-    log_csv=r"D:\fer-pi5\checkpoints\train_stage1_log.csv",
+    save_dir=r"F:\fer-pi5\checkpoints",
+    best_ckpt=r"F:\fer-pi5\checkpoints\best_model_stage1.pth",
+    log_csv=r"F:\fer-pi5\checkpoints\train_stage1_log.csv",
 
     # 设备 & 训练
     device="cuda" if torch.cuda.is_available() else "cpu",
@@ -289,7 +289,9 @@ def main():
 
     # 优化器
     optimizer = AdamW(model.parameters(), lr=float(CFG["lr"]), weight_decay=1e-4)
-    scaler = torch.amp.GradScaler(AMP_DEVICE, enabled=bool(CFG.get("use_amp", False)))
+    from torch.cuda.amp import GradScaler
+    scaler = GradScaler(enabled=bool(CFG.get("use_amp", False)))
+
     # 日志表头
     if not os.path.exists(str(CFG["log_csv"])):
         with open(str(CFG["log_csv"]), "w", newline="", encoding="utf-8") as f:

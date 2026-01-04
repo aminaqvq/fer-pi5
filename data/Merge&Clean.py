@@ -18,7 +18,7 @@ import pandas as pd
 from collections import defaultdict
 
 # ============== 配置区（按需修改） ==============
-BASE_DIR = r"D:\fer-pi5\data\csv"  # 你的 csv 目录
+BASE_DIR = r"F:\fer-pi5\data\csv"  # 你的 csv 目录
 MERGED_PATH = os.path.join(BASE_DIR, "merged.csv")
 
 TRAIN_OUT      = os.path.join(BASE_DIR, "train.csv")

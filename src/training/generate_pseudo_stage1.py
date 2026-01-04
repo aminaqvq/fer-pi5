@@ -17,12 +17,12 @@ from model_mbv3 import get_model
 # 配置
 # ============================================================
 CFG: Dict[str, object] = dict(
-    csv_base=r"D:\fer-pi5\data\csv",
-    unlabeled_csv=r"D:\fer-pi5\data\csv\unlabeled.csv",
+    csv_base=r"F:\fer-pi5\data\csv",
+    unlabeled_csv=r"F:\fer-pi5\data\csv\unlabeled.csv",
     img_base=None,
-    teacher_ckpt=r"D:\fer-pi5\checkpoints\best_model_stage1.pth",
+    teacher_ckpt=r"F:\fer-pi5\checkpoints\best_model_stage1.pth",
 
-    save_dir=r"D:\fer-pi5\data\csv",
+    save_dir=r"F:\fer-pi5\data\csv",
     out_csv_name="pseudo_labeled.csv",
     out_stats_name="pseudo_stats.json",
 
