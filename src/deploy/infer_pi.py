@@ -377,6 +377,5 @@ def main():
     cv2.destroyAllWindows()
     print("Bye.")
 
-
 if __name__ == "__main__":
     main()
