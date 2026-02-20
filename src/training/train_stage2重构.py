@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-train_stage2.py
+train_stage2传统.py
 
 第二阶段训练：真实标注数据 + 伪标签数据联合训练。
 采用置信度加权策略，支持渐进式引入伪标签（ramp-up）。

@@ -1,11 +1,11 @@
 {
-  "timestamp": 1767607971,
+  "timestamp": 1771565921,
   "cfg": {
     "device": "cuda",
     "csv_base": "F:\\fer-pi5\\data\\csv",
     "img_base": null,
     "save_dir": "F:\\fer-pi5\\checkpoints",
-    "best_ckpt": "F:\\fer-pi5\\checkpoints\\best_model_stage2.pth",
+    "best_ckpt": "F:\\fer-pi5\\checkpoints\\best_model_stage3.pth",
     "batch_size": 64,
     "num_workers": 4,
     "pin_memory": true,
@@ -13,18 +13,18 @@
     "per_class_limit": 5000,
     "model_variant": "large"
   },
-  "ckpt": "best_model_stage2.pth",
+  "ckpt": "best_model_stage3.pth",
   "tta": 1,
   "val": {
-    "loss": 0.4128807600954607,
-    "acc": 0.9028856994541463,
-    "f1_eval": 0.1369058442464576,
-    "f1_cm": 0.8692755829383737
+    "loss": 0.40536447547887666,
+    "acc": 0.9055367644218865,
+    "f1_eval": 0.13705183706299537,
+    "f1_cm": 0.8732315444334203
   },
   "test": {
-    "loss": 0.40093248588924896,
-    "acc": 0.9056586524677164,
-    "f1_eval": 0.1369592258845362,
-    "f1_cm": 0.873828739688881
+    "loss": 0.3969694929755424,
+    "acc": 0.9076698052983769,
+    "f1_eval": 0.13722922148467073,
+    "f1_cm": 0.8743381307351756
   }
 }

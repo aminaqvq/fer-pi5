@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-generate_pseudo_stage2.py
+generate_pseudo_stage2传统.py
 
 第二阶段伪标签生成：使用Stage2训练后的模型，在unlabeled数据上生成迭代优化的伪标签。
 与generate_pseudo_stage1.py保持完全统一的代码风格、配置结构和日志格式。
