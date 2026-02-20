@@ -22,8 +22,8 @@ except ImportError:
 
 
 # ===== 默认配置（按需改路径）=====
-DEFAULT_TFLITE_PATH = r"/home/amina/workspaces/fer-pi5/checkpoints/exported/tf_model/model.sim_float16.tflite"
-DEFAULT_YUNET_PATH  = r"/home/amina/workspaces/fer-pi5/checkpoints/exported/face_detection_yunet_2023mar.onnx"
+DEFAULT_TFLITE_PATH = r"/home/amina/workspaces/fer-pi5/export/tf_model/model_simplified_float16.tflite"
+DEFAULT_YUNET_PATH  = r"/home/amina/workspaces/fer-pi5/export/face_detection_yunet_2023mar_int8bq.onnx"
 
 IMG_SIZE = 224
 LABELS = ["anger", "disgust", "fear", "happy", "sad", "surprise", "neutral"]
