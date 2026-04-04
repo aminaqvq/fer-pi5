@@ -26,7 +26,7 @@ STD = np.array([0.229, 0.224, 0.225], dtype=np.float32)
 
 @dataclass
 class Config:
-    tflite_path: str = "/home/amina/workspaces/fer-pi5/export/tf_model/model_simplified_float32.tflite"
+    tflite_path: str = "/home/amina/workspaces/fer-pi5/export/model_fp16.tflite"
     yunet_path: str = "/home/amina/workspaces/fer-pi5/src/inference/face_detection_yunet_2023mar.onnx"
 
     camera_source = 0   # 0 / 1 / "/dev/video0"
