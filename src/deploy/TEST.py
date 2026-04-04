@@ -4,7 +4,7 @@ import time
 import math
 import threading
 from dataclasses import dataclass, field
-from typing import Optionasl, Tuple, List, Dict
+from typing import Optional, Tuple, List, Dict
 
 import cv2
 import numpy as np
