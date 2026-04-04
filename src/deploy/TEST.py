@@ -4,15 +4,14 @@
 import os
 import sys
 import time
+import math
 import threading
-from dataclasses import dataclass
-from collections import deque
-from typing import List, Optional, Tuple
+from dataclasses import dataclass, field
+from typing import Optional, Tuple, List, Dict
 
-import numpy as np
 import cv2
+import numpy as np
 
-# ========= TFLite 兼容导入：优先 tflite-runtime，回退 tensorflow =========
 try:
     import tflite_runtime.interpreter as tflite
     TFLITE_BACKEND = "tflite-runtime"
@@ -22,112 +21,76 @@ except ImportError:
     TFLITE_BACKEND = "tensorflow-lite"
 
 
-# ===================== 常量 =====================
 IMG_SIZE = 224
 LABELS = ["anger", "disgust", "fear", "happy", "sad", "surprise", "neutral"]
-
 MEAN = np.array([0.485, 0.456, 0.406], dtype=np.float32)
-STD  = np.array([0.229, 0.224, 0.225], dtype=np.float32)
+STD = np.array([0.229, 0.224, 0.225], dtype=np.float32)
 
 
-# ===================== 配置 =====================
 @dataclass
-class PipelineConfig:
-    tflite_path: str
-    yunet_path: str
+class Config:
+    tflite_path: str = "/home/amina/workspaces/fer-pi5/export/tf_model/model_simplified_float32.tflite"
+    yunet_path: str = "/home/amina/workspaces/fer-pi5/src/inference/face_detection_yunet_2023mar.onnx"
 
-    cam_id: int = 0
+    camera_source = 0   # 0 / 1 / "/dev/video0"
     cam_w: int = 640
     cam_h: int = 480
-    cam_fps: int = 30
-    mjpg: bool = True
+    cam_fps: int = 60
+    use_mjpg: bool = False
 
     det_w: int = 320
     det_h: int = 240
-    detect_every: int = 3  # 每 N 帧跑一次检测
-
-    # YuNet 参数
-    score_th: float = 0.9
+    detect_every: int = 2
+    score_th: float = 0.7
     nms_th: float = 0.3
     top_k: int = 5000
 
-    # 推理
-    tflite_threads: int = 6
-    use_xnnpack: bool = True
+    tflite_threads: int = 4
+    conf_th: float = 0.45
+    pad_ratio: float = 0.18
+    max_faces: int = 8
 
-    # 分类显示/策略
-    conf_th: float = 0.5
-    smooth_n: int = 10
-    pad_ratio: float = 0.20  # 人脸框外扩
-    light: bool = False
+    target_fps: int = 60
 
-    # 跟踪
-    tracker: str = "MOSSE"   # MOSSE(最快) / KCF(稍稳)
-    # 仅在检测到单脸时启用跟踪；多脸/无脸会清空跟踪器
+    # 基于五点中心做轻量跟踪
+    track_max_missing: int = 10
+    track_max_dist: float = 90.0
 
-
-# ===================== 这里直接改配置 =====================
-def get_default_config() -> PipelineConfig:
-    return PipelineConfig(
-        # 改成你自己的模型路径
-        tflite_path="/path/to/model.tflite",
-        yunet_path="/path/to/face_detection_yunet.onnx",
-
-        # 摄像头
-        cam_id=0,
-        cam_w=640,
-        cam_h=480,
-        cam_fps=30,
-        mjpg=True,
-
-        # 检测
-        det_w=320,
-        det_h=240,
-        detect_every=3,
-
-        # YuNet 参数
-        score_th=0.9,
-        nms_th=0.3,
-        top_k=5000,
-
-        # 推理
-        tflite_threads=6,
-        use_xnnpack=True,
-
-        # 分类显示/策略
-        conf_th=0.5,
-        smooth_n=10,
-        pad_ratio=0.20,
-        light=False,
-
-        # 跟踪器: "MOSSE" 或 "KCF"
-        tracker="MOSSE",
-    )
+    save_dir: str = "./best_by_class"
 
 
-def choose_camera_backend() -> int:
-    # Windows 用 DSHOW；Linux/Pi 用 V4L2
-    return cv2.CAP_DSHOW if sys.platform.startswith("win") else cv2.CAP_V4L2
+CFG = Config()
 
 
-# ===================== 摄像头读取线程 =====================
 class CameraReader:
-    def __init__(self, cam_id: int, backend: int, width: int, height: int, fps: int, mjpg: bool = True):
-        self.cap = cv2.VideoCapture(cam_id, backend)
+    def __init__(self, source, width: int, height: int, fps: int, use_mjpg: bool = False):
+        if isinstance(source, int):
+            self.cap = cv2.VideoCapture(source, cv2.CAP_ANY)
+        else:
+            self.cap = cv2.VideoCapture(source, cv2.CAP_ANY)
+
         if not self.cap.isOpened():
-            raise RuntimeError("Failed to open camera.")
+            raise RuntimeError(f"Failed to open camera: {source}")
 
-        if mjpg:
-            self.cap.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc(*"MJPG"))
+        try:
+            if use_mjpg:
+                self.cap.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc(*"MJPG"))
+        except Exception:
+            pass
 
-        self.cap.set(cv2.CAP_PROP_FRAME_WIDTH,  width)
-        self.cap.set(cv2.CAP_PROP_FRAME_HEIGHT, height)
-        self.cap.set(cv2.CAP_PROP_FPS,         fps)
+        try:
+            self.cap.set(cv2.CAP_PROP_FRAME_WIDTH, width)
+            self.cap.set(cv2.CAP_PROP_FRAME_HEIGHT, height)
+            self.cap.set(cv2.CAP_PROP_FPS, fps)
+            self.cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
+        except Exception:
+            pass
 
         self._lock = threading.Lock()
         self._stop = False
         self._ok = False
         self._frame = None
+        self._frame_ts = 0.0
         self._th = threading.Thread(target=self._loop, daemon=True)
 
     def start(self):
@@ -137,17 +100,19 @@ class CameraReader:
     def _loop(self):
         while not self._stop:
             ok, frame = self.cap.read()
+            ts = time.perf_counter()
             with self._lock:
                 self._ok = ok
-                if ok:
+                if ok and frame is not None:
                     self._frame = frame
-            time.sleep(0.001)
+                    self._frame_ts = ts
+            time.sleep(0.0005)
 
-    def read(self) -> Tuple[bool, Optional[np.ndarray]]:
+    def read(self) -> Tuple[bool, Optional[np.ndarray], float]:
         with self._lock:
             if not self._ok or self._frame is None:
-                return False, None
-            return True, self._frame.copy()
+                return False, None, 0.0
+            return True, self._frame.copy(), self._frame_ts
 
     def release(self):
         self._stop = True
@@ -158,46 +123,53 @@ class CameraReader:
         self.cap.release()
 
 
-# ===================== 工具：FPS 统计（EMA） =====================
 class FPSMeter:
-    def __init__(self, ema_alpha: float = 0.1):
-        self.ema_alpha = ema_alpha
+    def __init__(self, alpha: float = 0.1):
+        self.alpha = alpha
+        self.prev_t = time.perf_counter()
         self.fps_ema = 0.0
-        self.t_prev = time.perf_counter()
 
     def tick(self) -> float:
-        t_now = time.perf_counter()
-        dt = t_now - self.t_prev
-        self.t_prev = t_now
-        fps = (1.0 / dt) if dt > 0 else 0.0
-        self.fps_ema = fps if self.fps_ema == 0 else (1 - self.ema_alpha) * self.fps_ema + self.ema_alpha * fps
+        now = time.perf_counter()
+        dt = now - self.prev_t
+        self.prev_t = now
+        fps = 1.0 / dt if dt > 0 else 0.0
+        if self.fps_ema == 0.0:
+            self.fps_ema = fps
+        else:
+            self.fps_ema = (1.0 - self.alpha) * self.fps_ema + self.alpha * fps
         return self.fps_ema
 
 
-# ===================== TFLite FER 推理 =====================
-def preprocess_roi(bgr: np.ndarray) -> np.ndarray:
+def preprocess_roi(bgr: np.ndarray, input_shape) -> np.ndarray:
     roi = cv2.cvtColor(bgr, cv2.COLOR_BGR2RGB)
     roi = cv2.resize(roi, (IMG_SIZE, IMG_SIZE), interpolation=cv2.INTER_AREA)
+
     x = roi.astype(np.float32) / 255.0
     x = (x - MEAN) / STD
-    return np.expand_dims(x, 0)
+    x = np.expand_dims(x, 0)  # NHWC
+
+    target_shape = tuple(int(v) for v in input_shape)
+    if x.shape == target_shape:
+        return x
+
+    x_hcw = np.transpose(x, (0, 1, 3, 2))  # (1, H, C, W)
+    if x_hcw.shape == target_shape:
+        return x_hcw
+
+    x_chw = np.transpose(x, (0, 3, 1, 2))  # (1, C, H, W)
+    if x_chw.shape == target_shape:
+        return x_chw
+
+    raise ValueError(f"Unsupported input shape: got {x.shape}, expected {target_shape}")
 
 
 class TFLiteFER:
-    def __init__(self, model_path: str, num_threads: int = 4, try_xnnpack: bool = True):
+    def __init__(self, model_path: str, num_threads: int = 4):
         if not os.path.exists(model_path):
             raise FileNotFoundError(f"TFLite model not found: {model_path}")
 
-        kwargs = {"model_path": model_path, "num_threads": num_threads}
-        if try_xnnpack:
-            try:
-                delegate = tflite.load_delegate("libtensorflowlite_delegate_xnnpack.so")
-                kwargs["experimental_delegates"] = [delegate]
-                print("[TFLite] XNNPACK delegate enabled.")
-            except Exception as e:
-                print(f"[TFLite] XNNPACK not available: {e}")
-
-        self.interpreter = tflite.Interpreter(**kwargs)
+        self.interpreter = tflite.Interpreter(model_path=model_path, num_threads=num_threads)
         self.interpreter.allocate_tensors()
         self.in_det = self.interpreter.get_input_details()[0]
         self.out_det = self.interpreter.get_output_details()[0]
@@ -205,22 +177,20 @@ class TFLiteFER:
         print(f"[TFLite:{TFLITE_BACKEND}] Input:  shape={self.in_det['shape']}, dtype={self.in_det['dtype']}, quant={self.in_det.get('quantization')}")
         print(f"[TFLite:{TFLITE_BACKEND}] Output: shape={self.out_det['shape']}, dtype={self.out_det['dtype']}, quant={self.out_det.get('quantization')}")
 
-    def infer_probs(self, x_float: np.ndarray) -> np.ndarray:
-        # input quant
+    def infer(self, x: np.ndarray) -> np.ndarray:
         scale, zp = self.in_det.get("quantization", (0.0, 0))
         if self.in_det["dtype"] == np.int8:
             if scale == 0:
                 raise ValueError("Input int8 but quant scale is 0.")
-            x_q = np.round(x_float / scale + zp).astype(np.int8)
+            x_q = np.round(x / scale + zp).astype(np.int8)
             self.interpreter.set_tensor(self.in_det["index"], x_q)
         else:
-            self.interpreter.set_tensor(self.in_det["index"], x_float.astype(self.in_det["dtype"]))
+            self.interpreter.set_tensor(self.in_det["index"], x.astype(self.in_det["dtype"]))
 
         self.interpreter.invoke()
 
         yq = self.interpreter.get_tensor(self.out_det["index"])
         oscale, ozp = self.out_det.get("quantization", (0.0, 0))
-
         if self.out_det["dtype"] == np.int8:
             if oscale == 0:
                 raise ValueError("Output int8 but quant scale is 0.")
@@ -228,13 +198,12 @@ class TFLiteFER:
         else:
             y = yq.astype(np.float32)
 
-        y = np.reshape(y, (-1,))
+        y = y.reshape(-1)
         exp_y = np.exp(y - np.max(y))
         probs = exp_y / np.sum(exp_y)
-        return probs.reshape(-1)
+        return probs
 
 
-# ===================== YuNet 检测（小图加速） =====================
 class FaceDetectorYuNet:
     def __init__(self, model_path: str, input_size: Tuple[int, int], score_th: float, nms_th: float, top_k: int):
         if not os.path.exists(model_path):
@@ -245,7 +214,7 @@ class FaceDetectorYuNet:
         else:
             self.det = cv2.FaceDetectorYN.create(model_path, "", input_size, score_th, nms_th, top_k)
 
-    def detect(self, frame_bgr: np.ndarray, det_w: int, det_h: int) -> Tuple[List[List[int]], List[float]]:
+    def detect(self, frame_bgr: np.ndarray, det_w: int, det_h: int) -> List[Dict]:
         H, W = frame_bgr.shape[:2]
         small = cv2.resize(frame_bgr, (det_w, det_h), interpolation=cv2.INTER_LINEAR)
         self.det.setInputSize((det_w, det_h))
@@ -254,97 +223,124 @@ class FaceDetectorYuNet:
         if isinstance(faces, tuple):
             faces = faces[1]
         if faces is None or len(faces) == 0:
-            return [], []
+            return []
 
         sx = W / det_w
         sy = H / det_h
+        out = []
 
-        boxes, confs = [], []
         for f in faces.astype(np.float32):
             x, y, w, h = f[0:4]
-            score = float(f[4])
+            lms = f[4:14].reshape(5, 2)
+            score = float(f[14])
+
             x1 = int(x * sx)
             y1 = int(y * sy)
             x2 = int((x + w) * sx)
             y2 = int((y + h) * sy)
-            boxes.append([x1, y1, x2, y2])
-            confs.append(score)
-        return boxes, confs
+
+            landmarks = []
+            for px, py in lms:
+                landmarks.append((int(px * sx), int(py * sy)))
+
+            out.append({
+                "box": [x1, y1, x2, y2],
+                "landmarks": landmarks,
+                "det_conf": score,
+            })
+
+        return out
 
 
-# ===================== 跟踪器（检测间隔帧更稳） =====================
-class FaceTracker:
-    def __init__(self, tracker_name: str = "MOSSE"):
-        self.tracker_name = tracker_name.upper()
-        self.tracker = None
-        self.active = False
+@dataclass
+class Track:
+    track_id: int
+    box: List[int]
+    landmarks: List[Tuple[int, int]]
+    det_conf: float
+    last_seen_frame: int
+    label: str = ""
+    cls_conf: float = 0.0
+    probs: Optional[np.ndarray] = None
+    roi_box: Optional[List[int]] = None
 
-    def _create(self):
-        # MOSSE 需要 opencv-contrib；没有就回退到 KCF/CSRT(更慢)
-        name = self.tracker_name
-        if name == "MOSSE" and hasattr(cv2, "legacy") and hasattr(cv2.legacy, "TrackerMOSSE_create"):
-            return cv2.legacy.TrackerMOSSE_create()
-        if name == "KCF" and hasattr(cv2, "legacy") and hasattr(cv2.legacy, "TrackerKCF_create"):
-            return cv2.legacy.TrackerKCF_create()
 
-        # 兼容老 API
-        if name == "MOSSE" and hasattr(cv2, "TrackerMOSSE_create"):
-            return cv2.TrackerMOSSE_create()
-        if name == "KCF" and hasattr(cv2, "TrackerKCF_create"):
-            return cv2.TrackerKCF_create()
-
-        # 最终兜底：CSRT（更稳但更慢）
-        if hasattr(cv2, "legacy") and hasattr(cv2.legacy, "TrackerCSRT_create"):
-            print("[Tracker] Fallback to CSRT (slower).")
-            return cv2.legacy.TrackerCSRT_create()
-        if hasattr(cv2, "TrackerCSRT_create"):
-            print("[Tracker] Fallback to CSRT (slower).")
-            return cv2.TrackerCSRT_create()
-
-        raise RuntimeError("No available OpenCV tracker. Install opencv-contrib-python / opencv-contrib-python-headless.")
+class LandmarkTracker:
+    def __init__(self, max_missing: int = 10, max_dist: float = 90.0):
+        self.max_missing = max_missing
+        self.max_dist = max_dist
+        self.next_id = 1
+        self.tracks: Dict[int, Track] = {}
 
     @staticmethod
-    def _box_xyxy_to_xywh(box: List[int]) -> Tuple[int, int, int, int]:
+    def _center_from_landmarks(landmarks: List[Tuple[int, int]], box: List[int]) -> Tuple[float, float]:
+        if landmarks and len(landmarks) == 5:
+            xs = [p[0] for p in landmarks]
+            ys = [p[1] for p in landmarks]
+            return float(sum(xs)) / 5.0, float(sum(ys)) / 5.0
         x1, y1, x2, y2 = box
-        return (x1, y1, max(1, x2 - x1), max(1, y2 - y1))
+        return (x1 + x2) / 2.0, (y1 + y2) / 2.0
 
-    @staticmethod
-    def _box_xywh_to_xyxy(xywh: Tuple[float, float, float, float]) -> List[int]:
-        x, y, w, h = xywh
-        return [int(x), int(y), int(x + w), int(y + h)]
+    def update(self, detections: List[Dict], frame_idx: int) -> List[Track]:
+        active_ids = list(self.tracks.keys())
+        det_used = set()
+        trk_used = set()
 
-    def reset(self):
-        self.tracker = None
-        self.active = False
+        pairs = []
+        for tid in active_ids:
+            tr = self.tracks[tid]
+            tcx, tcy = self._center_from_landmarks(tr.landmarks, tr.box)
+            for di, det in enumerate(detections):
+                dcx, dcy = self._center_from_landmarks(det["landmarks"], det["box"])
+                dist = math.hypot(tcx - dcx, tcy - dcy)
+                pairs.append((dist, tid, di))
 
-    def init(self, frame: np.ndarray, box_xyxy: List[int]):
-        self.tracker = self._create()
-        self.active = self.tracker.init(frame, self._box_xyxy_to_xywh(box_xyxy))
+        pairs.sort(key=lambda x: x[0])
+        for dist, tid, di in pairs:
+            if dist > self.max_dist:
+                continue
+            if tid in trk_used or di in det_used:
+                continue
+            det = detections[di]
+            tr = self.tracks[tid]
+            tr.box = det["box"]
+            tr.landmarks = det["landmarks"]
+            tr.det_conf = det["det_conf"]
+            tr.last_seen_frame = frame_idx
+            trk_used.add(tid)
+            det_used.add(di)
 
-    def update(self, frame: np.ndarray) -> Optional[List[int]]:
-        if not self.active or self.tracker is None:
-            return None
-        ok, xywh = self.tracker.update(frame)
-        if not ok:
-            self.reset()
-            return None
-        return self._box_xywh_to_xyxy(xywh)
+        for di, det in enumerate(detections):
+            if di in det_used:
+                continue
+            tid = self.next_id
+            self.next_id += 1
+            self.tracks[tid] = Track(
+                track_id=tid,
+                box=det["box"],
+                landmarks=det["landmarks"],
+                det_conf=det["det_conf"],
+                last_seen_frame=frame_idx,
+            )
+
+        stale_ids = []
+        for tid, tr in self.tracks.items():
+            if frame_idx - tr.last_seen_frame > self.max_missing:
+                stale_ids.append(tid)
+        for tid in stale_ids:
+            self.tracks.pop(tid, None)
+
+        tracks = [tr for tr in self.tracks.values() if frame_idx - tr.last_seen_frame <= self.max_missing]
+        tracks.sort(key=lambda t: (t.box[2] - t.box[0]) * (t.box[3] - t.box[1]), reverse=True)
+        return tracks
+
+    def get_active(self, frame_idx: int) -> List[Track]:
+        tracks = [tr for tr in self.tracks.values() if frame_idx - tr.last_seen_frame <= self.max_missing]
+        tracks.sort(key=lambda t: (t.box[2] - t.box[0]) * (t.box[3] - t.box[1]), reverse=True)
+        return tracks
 
 
-# ===================== 可视化 =====================
-def draw_barchart(frame, probs, labels, x0, y0=40, bar_w=160, bar_h=18):
-    max_p = float(np.max(probs))
-    for i, (label, p) in enumerate(zip(labels, probs)):
-        y = y0 + i * (bar_h + 5)
-        cv2.rectangle(frame, (x0, y), (x0 + bar_w, y + bar_h), (50, 50, 50), -1)
-        bar_len = int(bar_w * float(p))
-        color = (0, 255, 0) if float(p) == max_p else (100, 180, 250)
-        cv2.rectangle(frame, (x0, y), (x0 + bar_len, y + bar_h), color, -1)
-        cv2.putText(frame, f"{label} {p:.2f}", (x0 - 135, y + bar_h - 3),
-                    cv2.FONT_HERSHEY_SIMPLEX, 0.48, (255, 255, 255), 1)
-
-
-def clamp_box_xyxy(box: List[int], W: int, H: int) -> List[int]:
+def clamp_box(box: List[int], W: int, H: int) -> List[int]:
     x1, y1, x2, y2 = box
     x1 = max(0, min(W - 1, x1))
     y1 = max(0, min(H - 1, y1))
@@ -363,125 +359,164 @@ def expand_square_roi(box: List[int], W: int, H: int, pad_ratio: float) -> List[
     cx, cy = (x1 + x2) // 2, (y1 + y2) // 2
     side = int(max(bw, bh) * (1.0 + pad_ratio))
 
-    x1n = max(0, cx - side // 2)
-    y1n = max(0, cy - side // 2)
-    x2n = min(W, x1n + side)
-    y2n = min(H, y1n + side)
-    return [x1n, y1n, x2n, y2n]
+    nx1 = max(0, cx - side // 2)
+    ny1 = max(0, cy - side // 2)
+    nx2 = min(W, nx1 + side)
+    ny2 = min(H, ny1 + side)
+    return [nx1, ny1, nx2, ny2]
 
 
-# ===================== 主流程 =====================
+def draw_landmarks(frame: np.ndarray, landmarks: List[Tuple[int, int]]):
+    colors = [(0, 255, 255), (0, 255, 255), (255, 0, 255), (0, 255, 0), (0, 128, 255)]
+    for i, (x, y) in enumerate(landmarks):
+        color = colors[i % len(colors)]
+        cv2.circle(frame, (x, y), 2, color, -1)
+
+
+def save_best_if_needed(save_dir: str, label: str, conf: float, roi_bgr: np.ndarray, best_records: Dict[str, Dict]):
+    if roi_bgr is None or roi_bgr.size == 0:
+        return
+
+    prev = best_records.get(label)
+    if prev is not None and conf <= prev["conf"]:
+        return
+
+    os.makedirs(save_dir, exist_ok=True)
+    out_path = os.path.join(save_dir, f"best_{label}.jpg")
+    cv2.imwrite(out_path, roi_bgr)
+    best_records[label] = {"conf": conf, "path": out_path}
+    print(f"[SAVE] {label}: {conf:.4f} -> {out_path}")
+
+
 def main():
-    cfg = get_default_config()
-
     print(f"[Init] Platform: {sys.platform}, TFLite backend: {TFLITE_BACKEND}")
-    print(f"[Init] TFLite: {cfg.tflite_path}")
-    fer = TFLiteFER(cfg.tflite_path, num_threads=cfg.tflite_threads, try_xnnpack=cfg.use_xnnpack)
+    print(f"[Init] TFLite: {CFG.tflite_path}")
+    print(f"[Init] YuNet : {CFG.yunet_path}")
+    print(f"[Init] Camera source: {CFG.camera_source}")
 
-    print("[Init] Opening camera ...")
+    fer = TFLiteFER(CFG.tflite_path, num_threads=CFG.tflite_threads)
+    detector = FaceDetectorYuNet(
+        CFG.yunet_path,
+        (CFG.det_w, CFG.det_h),
+        CFG.score_th,
+        CFG.nms_th,
+        CFG.top_k,
+    )
+    tracker = LandmarkTracker(CFG.track_max_missing, CFG.track_max_dist)
+
     cam = CameraReader(
-        cam_id=cfg.cam_id,
-        backend=choose_camera_backend(),
-        width=cfg.cam_w,
-        height=cfg.cam_h,
-        fps=cfg.cam_fps,
-        mjpg=cfg.mjpg,
+        CFG.camera_source,
+        CFG.cam_w,
+        CFG.cam_h,
+        CFG.cam_fps,
+        CFG.use_mjpg,
     ).start()
 
-    # 等待第一帧
-    ok, frame = False, None
-    for _ in range(60):
-        ok, frame = cam.read()
-        if ok:
+    ok, frame, frame_ts = False, None, 0.0
+    for i in range(150):
+        ok, frame, frame_ts = cam.read()
+        if ok and frame is not None:
+            print(f"[Init] First frame received at try={i + 1}, shape={frame.shape}")
             break
         time.sleep(0.02)
+
     if not ok or frame is None:
         cam.release()
         raise RuntimeError("Camera read failed at start.")
 
-    H, W = frame.shape[:2]
-    print(f"[Init] Camera frame: {W}x{H}")
-    print(f"[Init] YuNet: {cfg.yunet_path}")
-    detector = FaceDetectorYuNet(cfg.yunet_path, (cfg.det_w, cfg.det_h), cfg.score_th, cfg.nms_th, cfg.top_k)
-
-    tracker = FaceTracker(cfg.tracker)
-    smooth_queue = deque(maxlen=cfg.smooth_n)
-
-    fpsm = FPSMeter(ema_alpha=0.1)
-
-    last_det_ms = 0.0
-    last_cls_ms = 0.0
+    fpsm = FPSMeter(alpha=0.10)
+    target_frame_time = 1.0 / max(1, CFG.target_fps)
 
     frame_idx = 0
+    last_det_ms = 0.0
+    last_cls_ms = 0.0
+    latency_ms = 0.0
+    best_records: Dict[str, Dict] = {}
+
     try:
         while True:
-            loop_t0 = time.perf_counter()
-            ok, frame = cam.read()
+            loop_start = time.perf_counter()
+
+            ok, frame, frame_ts = cam.read()
             if not ok or frame is None:
                 continue
+
             H, W = frame.shape[:2]
+            latency_ms = (time.perf_counter() - frame_ts) * 1000.0
 
-            # -------- 检测 or 跟踪 --------
-            boxes: List[List[int]] = []
-            do_detect = (frame_idx % max(1, cfg.detect_every) == 0) or (not tracker.active)
-
-            if do_detect:
-                det_t0 = time.perf_counter()
-                boxes, _ = detector.detect(frame, cfg.det_w, cfg.det_h)
-                last_det_ms = (time.perf_counter() - det_t0) * 1000.0
-
-                # 只在“单脸”场景启用跟踪（与 FER 任务更匹配）
-                if len(boxes) == 1:
-                    b = clamp_box_xyxy(boxes[0], W, H)
-                    tracker.init(frame, b)
-                else:
-                    tracker.reset()
-                    smooth_queue.clear()
+            if frame_idx % CFG.detect_every == 0:
+                t0 = time.perf_counter()
+                detections = detector.detect(frame, CFG.det_w, CFG.det_h)
+                last_det_ms = (time.perf_counter() - t0) * 1000.0
+                tracks = tracker.update(detections, frame_idx)
             else:
-                b = tracker.update(frame)
-                if b is None:
-                    boxes = []
-                    smooth_queue.clear()
-                else:
-                    boxes = [clamp_box_xyxy(b, W, H)]
+                tracks = tracker.get_active(frame_idx)
 
-            # -------- 分类（只对单脸做平滑/显示）--------
-            last_cls_ms = 0.0
-            if len(boxes) == 1:
-                x1, y1, x2, y2 = boxes[0]
-                roi_box = expand_square_roi([x1, y1, x2, y2], W, H, cfg.pad_ratio)
-                rx1, ry1, rx2, ry2 = roi_box
+            tracks = tracks[:CFG.max_faces]
+            cls_times = []
+
+            for tr in tracks:
+                box = clamp_box(tr.box, W, H)
+                rx1, ry1, rx2, ry2 = expand_square_roi(box, W, H, CFG.pad_ratio)
                 roi = frame[ry1:ry2, rx1:rx2]
-                if roi.size != 0:
-                    cls_t0 = time.perf_counter()
-                    x = preprocess_roi(roi)
-                    probs = fer.infer_probs(x)
-                    last_cls_ms = (time.perf_counter() - cls_t0) * 1000.0
+                tr.roi_box = [rx1, ry1, rx2, ry2]
+                if roi.size == 0:
+                    continue
 
-                    smooth_queue.append(probs)
-                    probs_mean = np.mean(smooth_queue, axis=0) if len(smooth_queue) else probs
+                t1 = time.perf_counter()
+                x = preprocess_roi(roi, fer.in_det["shape"])
+                probs = fer.infer(x)
+                cls_times.append((time.perf_counter() - t1) * 1000.0)
 
-                    cls_id = int(np.argmax(probs_mean))
-                    conf = float(probs_mean[cls_id])
+                cls_id = int(np.argmax(probs))
+                conf = float(probs[cls_id])
+                tr.probs = probs
+                tr.label = LABELS[cls_id] if conf >= CFG.conf_th else "low_conf"
+                tr.cls_conf = conf
 
-                    color = (0, 255, 0) if conf >= cfg.conf_th else (0, 0, 255)
-                    cv2.rectangle(frame, (x1, y1), (x2, y2), color, 2)
-                    cv2.putText(frame, f"{LABELS[cls_id]} {conf:.2f}",
-                                (x1, max(20, y1 - 8)),
-                                cv2.FONT_HERSHEY_SIMPLEX, 0.65, color, 2)
+                if tr.label in LABELS:
+                    save_best_if_needed(CFG.save_dir, tr.label, conf, roi.copy(), best_records)
 
-                    if not cfg.light:
-                        draw_barchart(frame, probs_mean, LABELS, x0=frame.shape[1] - 180, y0=40)
+            last_cls_ms = float(np.mean(cls_times)) if cls_times else 0.0
 
-            # -------- HUD --------
+            for tr in tracks:
+                x1, y1, x2, y2 = clamp_box(tr.box, W, H)
+                color = (0, 255, 0) if tr.cls_conf >= CFG.conf_th else (0, 0, 255)
+                cv2.rectangle(frame, (x1, y1), (x2, y2), color, 2)
+
+                if tr.landmarks:
+                    draw_landmarks(frame, tr.landmarks)
+
+                text = f"ID{tr.track_id} {tr.label} {tr.cls_conf:.2f}"
+                cv2.putText(frame, text, (x1, max(20, y1 - 8)), cv2.FONT_HERSHEY_SIMPLEX, 0.62, color, 2)
+
+                if tr.probs is not None:
+                    top_idx = int(np.argmax(tr.probs))
+                    top_label = LABELS[top_idx]
+                    top_conf = float(tr.probs[top_idx])
+                    cv2.putText(frame, f"top={top_label}:{top_conf:.2f}", (x1, min(H - 10, y2 + 18)), cv2.FONT_HERSHEY_SIMPLEX, 0.48, (255, 255, 0), 1)
+
             fps = fpsm.tick()
-            loop_ms = (time.perf_counter() - loop_t0) * 1000.0
-            info1 = f"FPS: {fps:.1f}"
-            info2 = f"det_every={cfg.detect_every}  det={last_det_ms:.1f}ms  cls={last_cls_ms:.1f}ms  loop={loop_ms:.1f}ms  tracker={cfg.tracker}"
-            cv2.putText(frame, info1, (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.85, (0, 255, 255), 2)
-            cv2.putText(frame, info2, (10, 58), cv2.FONT_HERSHEY_SIMPLEX, 0.52, (200, 255, 200), 1)
+            loop_ms = (time.perf_counter() - loop_start) * 1000.0
 
-            cv2.imshow("FER-Pi5 (YuNet + Tracker + TFLite)", frame)
+            cv2.putText(frame, f"FPS: {fps:.1f} / {CFG.target_fps}", (10, 28), cv2.FONT_HERSHEY_SIMPLEX, 0.75, (0, 255, 255), 2)
+            cv2.putText(frame, f"Latency: {latency_ms:.1f} ms", (10, 54), cv2.FONT_HERSHEY_SIMPLEX, 0.62, (0, 255, 0), 2)
+            cv2.putText(frame, f"Faces: {len(tracks)} det={last_det_ms:.1f}ms cls(avg)={last_cls_ms:.1f}ms loop={loop_ms:.1f}ms", (10, 80), cv2.FONT_HERSHEY_SIMPLEX, 0.52, (200, 255, 200), 1)
+
+            y0 = 106
+            for label in LABELS:
+                if label in best_records:
+                    msg = f"best {label}: {best_records[label]['conf']:.2f}"
+                    cv2.putText(frame, msg, (10, y0), cv2.FONT_HERSHEY_SIMPLEX, 0.46, (220, 220, 220), 1)
+                    y0 += 18
+
+            cv2.imshow("FER Multi + YuNet 5-point", frame)
+
+            elapsed = time.perf_counter() - loop_start
+            sleep_time = target_frame_time - elapsed
+            if sleep_time > 0:
+                time.sleep(sleep_time)
+
             key = cv2.waitKey(1) & 0xFF
             if key in (27, ord("q")):
                 break
