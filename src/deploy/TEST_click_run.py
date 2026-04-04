@@ -21,6 +21,14 @@ except ImportError:
     tflite = tf.lite
     TFLITE_BACKEND = "tensorflow-lite"
 
+# ========= GUI（双击运行） =========
+try:
+    import tkinter as tk
+    from tkinter import filedialog, messagebox, ttk
+    TK_AVAILABLE = True
+except Exception:
+    TK_AVAILABLE = False
+
 
 # ===================== 常量 =====================
 IMG_SIZE = 224
@@ -29,12 +37,16 @@ LABELS = ["anger", "disgust", "fear", "happy", "sad", "surprise", "neutral"]
 MEAN = np.array([0.485, 0.456, 0.406], dtype=np.float32)
 STD  = np.array([0.229, 0.224, 0.225], dtype=np.float32)
 
+# 如果你不想每次都点“浏览”，可以把下面两个默认路径改成你自己的文件路径
+DEFAULT_TFLITE_PATH = ""
+DEFAULT_YUNET_PATH = ""
+
 
 # ===================== 配置 =====================
 @dataclass
 class PipelineConfig:
-    tflite_path: str
-    yunet_path: str
+    tflite_path: str = DEFAULT_TFLITE_PATH
+    yunet_path: str = DEFAULT_YUNET_PATH
 
     cam_id: int = 0
     cam_w: int = 640
@@ -66,48 +78,151 @@ class PipelineConfig:
     # 仅在检测到单脸时启用跟踪；多脸/无脸会清空跟踪器
 
 
-# ===================== 这里直接改配置 =====================
-def get_default_config() -> PipelineConfig:
-    return PipelineConfig(
-        # 改成你自己的模型路径
-        tflite_path="/path/to/model.tflite",
-        yunet_path="/path/to/face_detection_yunet.onnx",
-
-        # 摄像头
-        cam_id=0,
-        cam_w=640,
-        cam_h=480,
-        cam_fps=30,
-        mjpg=True,
-
-        # 检测
-        det_w=320,
-        det_h=240,
-        detect_every=3,
-
-        # YuNet 参数
-        score_th=0.9,
-        nms_th=0.3,
-        top_k=5000,
-
-        # 推理
-        tflite_threads=6,
-        use_xnnpack=True,
-
-        # 分类显示/策略
-        conf_th=0.5,
-        smooth_n=10,
-        pad_ratio=0.20,
-        light=False,
-
-        # 跟踪器: "MOSSE" 或 "KCF"
-        tracker="MOSSE",
-    )
-
-
 def choose_camera_backend() -> int:
     # Windows 用 DSHOW；Linux/Pi 用 V4L2
     return cv2.CAP_DSHOW if sys.platform.startswith("win") else cv2.CAP_V4L2
+
+
+# ===================== 启动 GUI =====================
+def get_config_from_gui() -> PipelineConfig:
+    if not TK_AVAILABLE:
+        raise RuntimeError("当前环境不支持 tkinter，无法显示点击运行界面。")
+
+    result = {"cfg": None}
+
+    root = tk.Tk()
+    root.title("FER 启动器（双击运行版）")
+    root.geometry("720x430")
+    root.resizable(False, False)
+
+    pad_x = 10
+    pad_y = 6
+
+    main = ttk.Frame(root, padding=12)
+    main.pack(fill="both", expand=True)
+
+    def add_label(row, text):
+        ttk.Label(main, text=text).grid(row=row, column=0, sticky="w", padx=pad_x, pady=pad_y)
+
+    def browse_file(var: tk.StringVar, title: str, filetypes):
+        path = filedialog.askopenfilename(title=title, filetypes=filetypes)
+        if path:
+            var.set(path)
+
+    tflite_var = tk.StringVar(value=DEFAULT_TFLITE_PATH)
+    yunet_var = tk.StringVar(value=DEFAULT_YUNET_PATH)
+    cam_id_var = tk.StringVar(value="0")
+    cam_w_var = tk.StringVar(value="640")
+    cam_h_var = tk.StringVar(value="480")
+    fps_var = tk.StringVar(value="30")
+    detect_every_var = tk.StringVar(value="3")
+    threads_var = tk.StringVar(value="6")
+    tracker_var = tk.StringVar(value="MOSSE")
+
+    mjpg_var = tk.BooleanVar(value=True)
+    xnnpack_var = tk.BooleanVar(value=True)
+    light_var = tk.BooleanVar(value=False)
+
+    # 模型路径
+    add_label(0, "TFLite 模型")
+    ttk.Entry(main, textvariable=tflite_var, width=58).grid(row=0, column=1, sticky="we", padx=pad_x, pady=pad_y)
+    ttk.Button(main, text="浏览", command=lambda: browse_file(
+        tflite_var,
+        "选择 TFLite 模型",
+        [("TFLite 模型", "*.tflite"), ("所有文件", "*.*")],
+    )).grid(row=0, column=2, padx=pad_x, pady=pad_y)
+
+    add_label(1, "YuNet 模型")
+    ttk.Entry(main, textvariable=yunet_var, width=58).grid(row=1, column=1, sticky="we", padx=pad_x, pady=pad_y)
+    ttk.Button(main, text="浏览", command=lambda: browse_file(
+        yunet_var,
+        "选择 YuNet ONNX 模型",
+        [("ONNX 模型", "*.onnx"), ("所有文件", "*.*")],
+    )).grid(row=1, column=2, padx=pad_x, pady=pad_y)
+
+    # 基础参数
+    add_label(2, "摄像头 ID")
+    ttk.Entry(main, textvariable=cam_id_var, width=15).grid(row=2, column=1, sticky="w", padx=pad_x, pady=pad_y)
+
+    add_label(3, "分辨率")
+    size_frame = ttk.Frame(main)
+    size_frame.grid(row=3, column=1, sticky="w", padx=pad_x, pady=pad_y)
+    ttk.Entry(size_frame, textvariable=cam_w_var, width=10).pack(side="left")
+    ttk.Label(size_frame, text=" x ").pack(side="left")
+    ttk.Entry(size_frame, textvariable=cam_h_var, width=10).pack(side="left")
+
+    add_label(4, "FPS")
+    ttk.Entry(main, textvariable=fps_var, width=15).grid(row=4, column=1, sticky="w", padx=pad_x, pady=pad_y)
+
+    add_label(5, "每 N 帧检测一次")
+    ttk.Entry(main, textvariable=detect_every_var, width=15).grid(row=5, column=1, sticky="w", padx=pad_x, pady=pad_y)
+
+    add_label(6, "TFLite 线程数")
+    ttk.Entry(main, textvariable=threads_var, width=15).grid(row=6, column=1, sticky="w", padx=pad_x, pady=pad_y)
+
+    add_label(7, "跟踪器")
+    ttk.Combobox(main, textvariable=tracker_var, values=["MOSSE", "KCF"], state="readonly", width=12).grid(
+        row=7, column=1, sticky="w", padx=pad_x, pady=pad_y
+    )
+
+    # 选项
+    opt_frame = ttk.LabelFrame(main, text="选项", padding=10)
+    opt_frame.grid(row=8, column=0, columnspan=3, sticky="we", padx=pad_x, pady=pad_y)
+    ttk.Checkbutton(opt_frame, text="启用 MJPG", variable=mjpg_var).pack(side="left", padx=10)
+    ttk.Checkbutton(opt_frame, text="启用 XNNPACK", variable=xnnpack_var).pack(side="left", padx=10)
+    ttk.Checkbutton(opt_frame, text="轻量显示（不画柱状图）", variable=light_var).pack(side="left", padx=10)
+
+    tips = (
+        "使用方法：先选择 .tflite 和 .onnx 文件，再点“开始运行”。\n"
+        "如果想完全双击即跑，把 DEFAULT_TFLITE_PATH 和 DEFAULT_YUNET_PATH 改成你的固定路径即可。"
+    )
+    ttk.Label(main, text=tips, foreground="#666").grid(row=9, column=0, columnspan=3, sticky="w", padx=pad_x, pady=(8, 4))
+
+    def on_start():
+        try:
+            cfg = PipelineConfig(
+                tflite_path=tflite_var.get().strip(),
+                yunet_path=yunet_var.get().strip(),
+                cam_id=int(cam_id_var.get().strip()),
+                cam_w=int(cam_w_var.get().strip()),
+                cam_h=int(cam_h_var.get().strip()),
+                cam_fps=int(fps_var.get().strip()),
+                mjpg=bool(mjpg_var.get()),
+                detect_every=max(1, int(detect_every_var.get().strip())),
+                tflite_threads=max(1, int(threads_var.get().strip())),
+                use_xnnpack=bool(xnnpack_var.get()),
+                light=bool(light_var.get()),
+                tracker=tracker_var.get().strip() or "MOSSE",
+            )
+
+            if not cfg.tflite_path:
+                raise ValueError("请选择 TFLite 模型文件")
+            if not cfg.yunet_path:
+                raise ValueError("请选择 YuNet ONNX 模型文件")
+            if not os.path.exists(cfg.tflite_path):
+                raise FileNotFoundError(f"TFLite 模型不存在：{cfg.tflite_path}")
+            if not os.path.exists(cfg.yunet_path):
+                raise FileNotFoundError(f"YuNet 模型不存在：{cfg.yunet_path}")
+
+            result["cfg"] = cfg
+            root.destroy()
+        except Exception as e:
+            messagebox.showerror("参数错误", str(e))
+
+    def on_cancel():
+        root.destroy()
+
+    btn_frame = ttk.Frame(main)
+    btn_frame.grid(row=10, column=0, columnspan=3, pady=(14, 0))
+    ttk.Button(btn_frame, text="开始运行", command=on_start).pack(side="left", padx=10)
+    ttk.Button(btn_frame, text="取消", command=on_cancel).pack(side="left", padx=10)
+
+    main.columnconfigure(1, weight=1)
+    root.mainloop()
+
+    if result["cfg"] is None:
+        raise SystemExit("用户取消启动。")
+    return result["cfg"]
 
 
 # ===================== 摄像头读取线程 =====================
@@ -372,7 +487,7 @@ def expand_square_roi(box: List[int], W: int, H: int, pad_ratio: float) -> List[
 
 # ===================== 主流程 =====================
 def main():
-    cfg = get_default_config()
+    cfg = get_config_from_gui()
 
     print(f"[Init] Platform: {sys.platform}, TFLite backend: {TFLITE_BACKEND}")
     print(f"[Init] TFLite: {cfg.tflite_path}")
