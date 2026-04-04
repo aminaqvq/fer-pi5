@@ -35,7 +35,7 @@ class Config:
     camera_source = 0   # 0 / 1 / "/dev/video0"
     cam_w: int = 640
     cam_h: int = 480
-    cam_fps: int = 60
+    cam_fps: int = 30
     use_mjpg: bool = False
 
     det_w: int = 320
@@ -50,13 +50,14 @@ class Config:
     pad_ratio: float = 0.18
     max_faces: int = 8
 
-    target_fps: int = 60
+    target_fps: int = 30
 
     # 基于五点中心做轻量跟踪
     track_max_missing: int = 10
     track_max_dist: float = 90.0
 
     save_dir: str = "./best_by_class"
+    mirror_flip: bool = True
 
 
 CFG = Config()
@@ -373,17 +374,22 @@ def draw_landmarks(frame: np.ndarray, landmarks: List[Tuple[int, int]]):
         cv2.circle(frame, (x, y), 2, color, -1)
 
 
-def save_best_if_needed(save_dir: str, label: str, conf: float, roi_bgr: np.ndarray, best_records: Dict[str, Dict]):
-    if roi_bgr is None or roi_bgr.size == 0:
-        return
-
+def mark_best_if_needed(label: str, conf: float, best_records: Dict[str, Dict], pending_saves: Dict[str, float]):
     prev = best_records.get(label)
     if prev is not None and conf <= prev["conf"]:
+        return
+    old_pending = pending_saves.get(label)
+    if old_pending is None or conf > old_pending:
+        pending_saves[label] = conf
+
+
+def save_annotated_frame(save_dir: str, label: str, conf: float, annotated_frame: np.ndarray, best_records: Dict[str, Dict]):
+    if annotated_frame is None or annotated_frame.size == 0:
         return
 
     os.makedirs(save_dir, exist_ok=True)
     out_path = os.path.join(save_dir, f"best_{label}.jpg")
-    cv2.imwrite(out_path, roi_bgr)
+    cv2.imwrite(out_path, annotated_frame)
     best_records[label] = {"conf": conf, "path": out_path}
     print(f"[SAVE] {label}: {conf:.4f} -> {out_path}")
 
@@ -416,6 +422,8 @@ def main():
     for i in range(150):
         ok, frame, frame_ts = cam.read()
         if ok and frame is not None:
+            if CFG.mirror_flip:
+                frame = cv2.flip(frame, 1)
             print(f"[Init] First frame received at try={i + 1}, shape={frame.shape}")
             break
         time.sleep(0.02)
@@ -441,6 +449,9 @@ def main():
             if not ok or frame is None:
                 continue
 
+            if CFG.mirror_flip:
+                frame = cv2.flip(frame, 1)
+
             H, W = frame.shape[:2]
             latency_ms = (time.perf_counter() - frame_ts) * 1000.0
 
@@ -454,6 +465,7 @@ def main():
 
             tracks = tracks[:CFG.max_faces]
             cls_times = []
+            pending_saves: Dict[str, float] = {}
 
             for tr in tracks:
                 box = clamp_box(tr.box, W, H)
@@ -475,7 +487,7 @@ def main():
                 tr.cls_conf = conf
 
                 if tr.label in LABELS:
-                    save_best_if_needed(CFG.save_dir, tr.label, conf, roi.copy(), best_records)
+                    mark_best_if_needed(tr.label, conf, best_records, pending_saves)
 
             last_cls_ms = float(np.mean(cls_times)) if cls_times else 0.0
 
@@ -509,6 +521,9 @@ def main():
                     msg = f"best {label}: {best_records[label]['conf']:.2f}"
                     cv2.putText(frame, msg, (10, y0), cv2.FONT_HERSHEY_SIMPLEX, 0.46, (220, 220, 220), 1)
                     y0 += 18
+
+            for label, conf in pending_saves.items():
+                save_annotated_frame(CFG.save_dir, label, conf, frame.copy(), best_records)
 
             cv2.imshow("FER Multi + YuNet 5-point", frame)
 
