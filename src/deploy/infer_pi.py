@@ -28,7 +28,7 @@ JPEG_PARAMS = [cv2.IMWRITE_JPEG_QUALITY, 100]
 
 @dataclass
 class Config:
-    tflite_path: str = "/home/amina/workspaces/fer-pi5/export/saved_model/model_simplified_float16.tflite"
+    tflite_path: str = "/home/amina/workspaces/fer-pi5/export/model_fp16.tflite"
     yunet_path: str = "/home/amina/workspaces/fer-pi5/src/inference/face_detection_yunet_2023mar.onnx"
 
     camera_source = 0
