@@ -1,11 +1,9 @@
 import os
-import sys
 import csv
 import math
 import json
 import time
 import random
-import argparse
 from typing import Dict, List, Tuple, Optional
 
 import numpy as np
@@ -16,23 +14,32 @@ from torch.utils.data import DataLoader, Dataset, ConcatDataset, Subset
 from torch.amp import autocast
 from torch.cuda.amp import GradScaler
 
-# 项目内导入
 from dataset import FER2013Hybrid, IMG_SIZE
 from model_mbv3 import get_model
 
+
 # ============================================================
-# 全局默认配置（Stage1基准）
+# Stage3 直接运行配置（像 train_stage1.py / train_stage2.py 一样）
 # ============================================================
-DEFAULT_CFG: Dict[str, object] = {
+CFG: Dict[str, object] = {
     # === 路径根目录（按你的项目修改）===
     "project_root": r"F:\fer-pi5",
 
-    # === 数据路径（相对project_root或绝对路径）===
+    # === 数据路径（相对 project_root 或绝对路径）===
     "train_csv": r"data\csv\train.csv",
     "val_csv": r"data\csv\val.csv",
     "test_csv": r"data\csv\test.csv",
-    "unlabeled_csv": r"data\csv\unlabeled.csv",
+    "pseudo_csv": r"data\csv\pseudo_labeled_stage2.csv",   # Stage2 生成的伪标签
     "img_base": None,
+
+    # === Stage3 初始化与输出 ===
+    "init_ckpt": r"checkpoints\best_model_stage2.pth",      # Stage2 最优模型
+    "save_dir": r"checkpoints",
+    "best_ckpt": r"checkpoints\best_model_stage3.pth",
+    "log_csv": r"checkpoints\train_stage3_log.csv",
+    "metrics_json": r"checkpoints\metrics_stage3.json",
+    "val_confusion_png": r"checkpoints\val_confusion_stage3.png",
+    "test_confusion_png": r"checkpoints\test_confusion_stage3.png",
 
     # === 训练参数 ===
     "device": "cuda" if torch.cuda.is_available() else "cpu",
@@ -52,9 +59,9 @@ DEFAULT_CFG: Dict[str, object] = {
     # === 类别均衡（CB loss）===
     "beta": 0.995,
     "label_smoothing": 0.04,
-    "cb_include_pseudo": False,  # Stage2+时是否用伪标签统计CB权重
+    "cb_include_pseudo": False,
 
-    # === 半监督特有（Stage2+生效）===
+    # === 半监督 ===
     "pseudo_conf_min": 0.0,
     "pseudo_conf_power": 2.0,
     "pseudo_loss_scale": 1.0,
@@ -74,10 +81,11 @@ DEFAULT_CFG: Dict[str, object] = {
 
     # === 模型 ===
     "model_variant": "large",
-    "pretrained": True,
+    "pretrained": False,  # Stage3 从 Stage2 ckpt 初始化，不走 ImageNet 预训练
 }
 
-AMP_DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
+STAGE_ID = 3
+STAGE_NAME = "Stage3"
 
 
 # ============================================================
@@ -92,7 +100,7 @@ def seed_all(seed: int = 42):
 
 
 def cosine_warmup_lr(base_lr: float, floor: float, warmup_epochs: int, total_epochs: int, epoch: int) -> float:
-    """线性warmup + cosine衰减"""
+    """线性 warmup + cosine 衰减"""
     if epoch < warmup_epochs:
         return base_lr * float(epoch + 1) / max(1, warmup_epochs)
     progress = (epoch - warmup_epochs) / max(1, total_epochs - warmup_epochs)
@@ -105,7 +113,7 @@ def accuracy(logits: torch.Tensor, target: torch.Tensor) -> float:
 
 
 def macro_f1(logits: torch.Tensor, target: torch.Tensor, num_classes: int = 7) -> float:
-    """计算宏平均F1"""
+    """计算宏平均 F1"""
     pred = logits.argmax(1)
     f1s = []
     for c in range(num_classes):
@@ -119,7 +127,7 @@ def macro_f1(logits: torch.Tensor, target: torch.Tensor, num_classes: int = 7) -
 
 
 def _make_loader(ds: Dataset, batch_size: int, shuffle: bool, cfg: Dict) -> DataLoader:
-    """构造DataLoader"""
+    """构造 DataLoader"""
     kwargs = dict(
         batch_size=int(batch_size),
         shuffle=bool(shuffle),
@@ -133,21 +141,71 @@ def _make_loader(ds: Dataset, batch_size: int, shuffle: bool, cfg: Dict) -> Data
     return DataLoader(ds, **kwargs)
 
 
+def resolve_path(project_root: str, path_value: Optional[object]) -> Optional[str]:
+    """将相对路径解析为绝对路径，None 原样返回"""
+    if path_value in (None, "", "None"):
+        return None
+    path_str = str(path_value)
+    if os.path.isabs(path_str):
+        return path_str
+    return os.path.join(project_root, path_str)
+
+
+def build_stage3_cfg(cfg: Dict[str, object]) -> Dict[str, object]:
+    """将 CFG 转成可直接训练的 Stage3 绝对路径配置"""
+    stage_cfg = dict(cfg)
+    root = str(stage_cfg["project_root"])
+
+    for key in (
+        "train_csv",
+        "val_csv",
+        "test_csv",
+        "pseudo_csv",
+        "img_base",
+        "init_ckpt",
+        "save_dir",
+        "best_ckpt",
+        "log_csv",
+        "metrics_json",
+        "val_confusion_png",
+        "test_confusion_png",
+    ):
+        stage_cfg[key] = resolve_path(root, stage_cfg.get(key))
+
+    stage_cfg["stage_id"] = STAGE_ID
+    stage_cfg["stage_name"] = STAGE_NAME
+    stage_cfg["is_ssl"] = True
+
+    os.makedirs(str(stage_cfg["save_dir"]), exist_ok=True)
+
+    required_files = {
+        "train_csv": "训练集 CSV",
+        "val_csv": "验证集 CSV",
+        "test_csv": "测试集 CSV",
+        "pseudo_csv": "Stage2 生成的伪标签 CSV",
+        "init_ckpt": "Stage2 最优模型",
+    }
+    for key, desc in required_files.items():
+        path = stage_cfg.get(key)
+        if not path or not os.path.exists(path):
+            raise FileNotFoundError(f"{desc} 不存在: {path}")
+
+    return stage_cfg
+
+
 # ============================================================
-# 伪标签置信度读取（Stage2+需要）
+# 伪标签置信度读取
 # ============================================================
 def read_pseudo_confs(csv_path: str, conf_min: float = 0.0) -> Tuple[List[float], List[int]]:
     """
-    读取伪标签CSV的置信度，返回(conf列表, 有效索引列表)
-    无效项（conf < conf_min）标记为-1并过滤
+    读取伪标签 CSV 的置信度，返回 (conf 列表, 有效索引列表)
+    无效项（conf < conf_min）标记为 -1 并过滤
     """
-    import csv as csv_mod
-
     confs: List[float] = []
     valid_indices: List[int] = []
 
     with open(csv_path, "r", encoding="utf-8") as f:
-        reader = csv_mod.DictReader(f)
+        reader = csv.DictReader(f)
         for idx, row in enumerate(reader):
             c = row.get("conf", row.get("Conf", None))
             try:
@@ -156,7 +214,7 @@ def read_pseudo_confs(csv_path: str, conf_min: float = 0.0) -> Tuple[List[float]
                 c = 1.0
 
             if c < conf_min:
-                confs.append(-1.0)  # 标记无效
+                confs.append(-1.0)
             else:
                 confs.append(float(c))
                 valid_indices.append(idx)
@@ -165,20 +223,20 @@ def read_pseudo_confs(csv_path: str, conf_min: float = 0.0) -> Tuple[List[float]
 
 
 # ============================================================
-# 带权重的数据集包装（Stage2+核心）
+# 带权重的数据集包装（Stage3 半监督核心）
 # ============================================================
 class WeightedDataset(Dataset):
     """
-    为样本附加权重，区分真实/伪标签
-    返回5元组: (image, label, weight, is_pseudo, idx)
+    为样本附加权重，区分真实/伪标签。
+    返回 5 元组: (image, label, weight, is_pseudo, idx)
     """
 
     def __init__(
-            self,
-            base: Dataset,
-            weights: Optional[List[float]] = None,
-            is_pseudo_flags: Optional[List[bool]] = None,
-            default_w: float = 1.0
+        self,
+        base: Dataset,
+        weights: Optional[List[float]] = None,
+        is_pseudo_flags: Optional[List[bool]] = None,
+        default_w: float = 1.0,
     ):
         self.base = base
         self.default_w = float(default_w)
@@ -201,10 +259,10 @@ class WeightedDataset(Dataset):
 
 
 # ============================================================
-# CB权重计算
+# CB 权重计算
 # ============================================================
 def compute_cb_weights(labels: List[int], num_classes: int, beta: float, device: str) -> torch.Tensor:
-    """计算Class-Balanced权重"""
+    """计算 Class-Balanced 权重"""
     counts = np.bincount(np.array(labels, dtype=np.int64), minlength=num_classes).astype(np.float32)
     counts = np.maximum(counts, 1.0)
     eff = 1.0 - np.power(beta, counts)
@@ -235,17 +293,13 @@ def load_ckpt_into_model(model: torch.nn.Module, ckpt_path: str, device: str):
 
     state = torch.load(ckpt_path, map_location="cpu")
 
-    # 解包state_dict
     if isinstance(state, dict) and "state_dict" in state:
         state = state["state_dict"]
 
-    # 移除module.前缀
     if isinstance(state, dict):
         new_state = {}
         for k, v in state.items():
-            nk = k
-            if nk.startswith("module."):
-                nk = nk[len("module."):]
+            nk = k[len("module."):] if k.startswith("module.") else k
             new_state[nk] = v
         state = new_state
 
@@ -263,29 +317,23 @@ def load_ckpt_into_model(model: torch.nn.Module, ckpt_path: str, device: str):
 # 训练与验证
 # ============================================================
 def train_one_epoch(
-        model: torch.nn.Module,
-        optimizer: AdamW,
-        loader: DataLoader,
-        device: str,
-        epoch: int,
-        cfg: Dict,
-        class_w: Optional[torch.Tensor],
-        scaler: GradScaler,
-        is_ssl: bool = False
+    model: torch.nn.Module,
+    optimizer: AdamW,
+    loader: DataLoader,
+    device: str,
+    epoch: int,
+    cfg: Dict,
+    class_w: Optional[torch.Tensor],
+    scaler: GradScaler,
+    is_ssl: bool = False,
 ) -> Tuple[float, float, float]:
-    """
-    训练一个epoch
-
-    Args:
-        is_ssl: 是否为半监督模式（Stage2+）
-    """
+    """训练一个 epoch"""
     model.train()
     total_loss = total_acc = total_f1 = 0.0
     total_wsum = 0.0
 
     use_amp = bool(cfg.get("use_amp", False)) and str(device).startswith("cuda")
 
-    # Ramp-up系数（仅SSL模式）
     ramp = 1.0
     if is_ssl:
         ramp_epochs = int(cfg.get("pseudo_rampup_epochs", 0))
@@ -293,28 +341,26 @@ def train_one_epoch(
             ramp = min(1.0, (epoch + 1) / ramp_epochs)
 
     for batch in loader:
-        # 解包
         if is_ssl:
-            # 5元组: (img, label, weight, is_pseudo, idx)
             xb, yb, wb_base, is_pseudo_flags, _ = batch
 
             xb = xb.to(device, non_blocking=True)
             yb = yb.to(device, non_blocking=True)
             wb_base = wb_base.to(device, non_blocking=True)
 
-            # Ramp-up: 仅伪标签样本受影响
             is_pseudo_mask = torch.tensor(is_pseudo_flags, dtype=torch.bool, device=device)
             wb = wb_base.clone()
             wb[is_pseudo_mask] = wb_base[is_pseudo_mask] * ramp
 
-            # 调试信息（前3epoch首batch）
             if epoch < 3 and total_wsum == 0:
                 real_cnt = (~is_pseudo_mask).sum().item()
                 pseudo_cnt = is_pseudo_mask.sum().item()
-                print(f"  [Debug Epoch {epoch + 1}] real={real_cnt}, pseudo={pseudo_cnt}, "
-                      f"ramp={ramp:.3f}, pseudo_w_mean={wb[is_pseudo_mask].mean().item():.3f}")
+                pseudo_w_mean = wb[is_pseudo_mask].mean().item() if pseudo_cnt > 0 else 0.0
+                print(
+                    f"  [Debug Epoch {epoch + 1}] real={real_cnt}, pseudo={pseudo_cnt}, "
+                    f"ramp={ramp:.3f}, pseudo_w_mean={pseudo_w_mean:.3f}"
+                )
         else:
-            # 3元组: (img, label) - Stage1纯监督
             xb, yb = batch
             xb = xb.to(device, non_blocking=True)
             yb = yb.to(device, non_blocking=True)
@@ -325,39 +371,37 @@ def train_one_epoch(
         with autocast(device_type="cuda", enabled=use_amp):
             logits = model(xb)
 
-            # 计算损失
             if class_w is not None:
                 loss_vec = F.cross_entropy(
-                    logits, yb,
+                    logits,
+                    yb,
                     weight=class_w,
                     label_smoothing=float(cfg.get("label_smoothing", 0.0)),
-                    reduction="none"
+                    reduction="none",
                 )
             else:
                 loss_vec = F.cross_entropy(
-                    logits, yb,
+                    logits,
+                    yb,
                     label_smoothing=float(cfg.get("label_smoothing", 0.0)),
-                    reduction="none"
+                    reduction="none",
                 )
 
-            # 加权归一化
             wsum = wb.sum().clamp_min(1e-6)
             loss = (loss_vec * wb).sum() / wsum
 
-        # 反向传播
         scaler.scale(loss).backward()
 
         if bool(cfg.get("grad_clip", False)):
             scaler.unscale_(optimizer)
             torch.nn.utils.clip_grad_norm_(
                 model.parameters(),
-                max_norm=float(cfg.get("max_norm", 1.0))
+                max_norm=float(cfg.get("max_norm", 1.0)),
             )
 
         scaler.step(optimizer)
         scaler.update()
 
-        # 统计
         with torch.no_grad():
             bs_w = float(wsum.item())
             total_loss += float(loss.item()) * bs_w
@@ -370,11 +414,7 @@ def train_one_epoch(
 
 
 @torch.no_grad()
-def evaluate(
-        model: torch.nn.Module,
-        loader: DataLoader,
-        device: str
-) -> Tuple[float, float, float]:
+def evaluate(model: torch.nn.Module, loader: DataLoader, device: str) -> Tuple[float, float, float]:
     """验证/测试评估"""
     model.eval()
     total_loss = total_acc = total_f1 = 0.0
@@ -401,10 +441,10 @@ def evaluate(
 # ============================================================
 @torch.no_grad()
 def confusion_and_per_class(
-        model: torch.nn.Module,
-        loader: DataLoader,
-        num_classes: int = 7,
-        device: str = "cuda"
+    model: torch.nn.Module,
+    loader: DataLoader,
+    num_classes: int = 7,
+    device: str = "cuda",
 ) -> Tuple[np.ndarray, List[float], List[float], List[float]]:
     """计算混淆矩阵和每类指标"""
     cm = torch.zeros((num_classes, num_classes), dtype=torch.long, device=device)
@@ -435,9 +475,10 @@ def confusion_and_per_class(
 
 
 def save_confusion_png(cm: np.ndarray, path: str, title: str = "Confusion Matrix"):
-    """保存混淆矩阵图为PNG"""
+    """保存混淆矩阵图为 PNG"""
     try:
         import matplotlib.pyplot as plt
+
         plt.figure(figsize=(8, 6), dpi=150)
         plt.imshow(cm, interpolation="nearest", cmap="viridis")
         plt.title(title)
@@ -445,12 +486,17 @@ def save_confusion_png(cm: np.ndarray, path: str, title: str = "Confusion Matrix
         plt.ylabel("True")
         plt.colorbar()
 
-        # 添加数值标注
         for i in range(cm.shape[0]):
             for j in range(cm.shape[1]):
-                plt.text(j, i, str(cm[i, j]), ha="center", va="center",
-                         color="white" if cm[i, j] > cm.max() / 2 else "black",
-                         fontsize=8)
+                plt.text(
+                    j,
+                    i,
+                    str(cm[i, j]),
+                    ha="center",
+                    va="center",
+                    color="white" if cm[i, j] > cm.max() / 2 else "black",
+                    fontsize=8,
+                )
 
         plt.tight_layout()
         plt.savefig(path)
@@ -463,176 +509,79 @@ def save_confusion_png(cm: np.ndarray, path: str, title: str = "Confusion Matrix
 # ============================================================
 # 主流程
 # ============================================================
-def get_stage_config(stage: int, cfg: Dict) -> Dict:
-    """
-    根据阶段生成完整配置
-    自动推断路径：stage N 加载 stage N-1 的模型，使用 stage N-1 的伪标签
-    """
-    stage_cfg = dict(cfg)
-    root = cfg["project_root"]
-
-    # 确保是绝对路径
-    def make_path(p):
-        if os.path.isabs(p):
-            return p
-        return os.path.join(root, p)
-
-    # 数据路径
-    stage_cfg["train_csv"] = make_path(cfg["train_csv"])
-    stage_cfg["val_csv"] = make_path(cfg["val_csv"])
-    stage_cfg["test_csv"] = make_path(cfg["test_csv"])
-
-    # 阶段特定配置
-    if stage == 1:
-        # Stage1: 纯监督，无伪标签
-        stage_cfg["stage_name"] = "Stage1"
-        stage_cfg["is_ssl"] = False
-        stage_cfg["init_ckpt"] = None  # 从预训练开始
-        stage_cfg["pseudo_csv"] = None
-        stage_cfg["best_ckpt"] = make_path(rf"checkpoints\best_model_stage1.pth")
-        stage_cfg["log_csv"] = make_path(rf"checkpoints\train_stage1_log.csv")
-
-    else:
-        # Stage2+: 半监督
-        stage_cfg["stage_name"] = f"Stage{stage}"
-        stage_cfg["is_ssl"] = True
-
-        # 自动推断输入
-        prev_stage = stage - 1
-        stage_cfg["init_ckpt"] = make_path(rf"checkpoints\best_model_stage{prev_stage}.pth")
-        stage_cfg["pseudo_csv"] = make_path(rf"data\csv\pseudo_labeled_stage{prev_stage}.csv")
-
-        # 输出路径
-        stage_cfg["best_ckpt"] = make_path(rf"checkpoints\best_model_stage{stage}.pth")
-        stage_cfg["log_csv"] = make_path(rf"checkpoints\train_stage{stage}_log.csv")
-
-        # 检查文件存在性
-        if not os.path.exists(stage_cfg["init_ckpt"]):
-            raise FileNotFoundError(
-                f"Stage {stage} requires Stage {prev_stage} checkpoint: {stage_cfg['init_ckpt']}\n"
-                f"请先完成 Stage {prev_stage} 训练"
-            )
-        if not os.path.exists(stage_cfg["pseudo_csv"]):
-            raise FileNotFoundError(
-                f"Stage {stage} requires pseudo labels from Stage {prev_stage}: {stage_cfg['pseudo_csv']}\n"
-                f"请先运行 generate_pseudo_stage{prev_stage}.py 生成伪标签"
-            )
-
-    # 创建目录
-    os.makedirs(os.path.dirname(stage_cfg["best_ckpt"]), exist_ok=True)
-
-    return stage_cfg
-
-
 def main():
-    parser = argparse.ArgumentParser(description="通用多阶段训练脚本")
-    parser.add_argument("--stage", type=int, required=True, choices=[1, 2, 3, 4, 5],
-                        help="训练阶段: 1=监督, 2+=半监督")
-    parser.add_argument("--project-root", type=str, default=None,
-                        help="项目根目录，覆盖默认配置")
-    parser.add_argument("--epochs", type=int, default=None,
-                        help="覆盖训练轮数")
-    parser.add_argument("--lr", type=float, default=None,
-                        help="覆盖学习率")
-    parser.add_argument("--batch-size", type=int, default=None,
-                        help="覆盖批次大小")
-
-    args = parser.parse_args()
-
-    # 构建配置
-    cfg = dict(DEFAULT_CFG)
-    if args.project_root:
-        cfg["project_root"] = args.project_root
-    if args.epochs:
-        cfg["epochs"] = args.epochs
-    if args.lr:
-        cfg["lr"] = args.lr
-    if args.batch_size:
-        cfg["batch_size"] = args.batch_size
-
-    # 获取阶段配置
-    stage_cfg = get_stage_config(args.stage, cfg)
-    is_ssl = stage_cfg["is_ssl"]
+    stage_cfg = build_stage3_cfg(CFG)
+    is_ssl = bool(stage_cfg["is_ssl"])
 
     print(f"\n{'=' * 60}")
     print(f"开始 {stage_cfg['stage_name']} 训练")
     print(f"{'=' * 60}")
-    print(f"模式: {'半监督 (SSL)' if is_ssl else '纯监督 (Supervised)'}")
-    print(f"初始化: {stage_cfg['init_ckpt'] or 'ImageNet预训练'}")
-    if is_ssl:
-        print(f"伪标签: {stage_cfg['pseudo_csv']}")
+    print("模式: 半监督 (SSL)")
+    print(f"初始化: {stage_cfg['init_ckpt']}")
+    print(f"伪标签: {stage_cfg['pseudo_csv']}")
     print(f"输出模型: {stage_cfg['best_ckpt']}")
     print(f"{'=' * 60}\n")
 
-    # 设置随机种子
     seed_all(int(stage_cfg["seed"]))
     device = str(stage_cfg["device"])
+
+    img_root = None if stage_cfg["img_base"] in (None, "", "None") else str(stage_cfg["img_base"])
 
     # ========================================================
     # 数据集构造
     # ========================================================
-    img_root = None if stage_cfg["img_base"] in (None, "", "None") else str(stage_cfg["img_base"])
-
-    # 真实标注数据（始终使用）
     ds_real = FER2013Hybrid(
-        stage_cfg["train_csv"], img_root, "train",
+        stage_cfg["train_csv"],
+        img_root,
+        "train",
         img_size=int(IMG_SIZE),
         two_views=False,
-        include_label=True
+        include_label=True,
     )
 
-    if is_ssl:
-        # 半监督模式：加载伪标签
-        print(f"[INFO] 加载伪标签数据...")
-        conf_min = float(stage_cfg.get("pseudo_conf_min", 0.0))
-        conf_power = float(stage_cfg.get("pseudo_conf_power", 1.0))
-        pseudo_scale = float(stage_cfg.get("pseudo_loss_scale", 1.0))
+    print("[INFO] 加载伪标签数据...")
+    conf_min = float(stage_cfg.get("pseudo_conf_min", 0.0))
+    conf_power = float(stage_cfg.get("pseudo_conf_power", 1.0))
+    pseudo_scale = float(stage_cfg.get("pseudo_loss_scale", 1.0))
 
-        # 读取置信度
-        pseudo_confs, valid_indices = read_pseudo_confs(stage_cfg["pseudo_csv"], conf_min)
-        print(f"  伪标签总数: {len(pseudo_confs)}, 有效: {len(valid_indices)} "
-              f"(过滤率: {100 * (1 - len(valid_indices) / max(len(pseudo_confs), 1)):.1f}%)")
+    pseudo_confs, valid_indices = read_pseudo_confs(str(stage_cfg["pseudo_csv"]), conf_min)
+    print(
+        f"  伪标签总数: {len(pseudo_confs)}, 有效: {len(valid_indices)} "
+        f"(过滤率: {100 * (1 - len(valid_indices) / max(len(pseudo_confs), 1)):.1f}%)"
+    )
 
-        # 加载伪标签数据集
-        ds_pseudo = FER2013Hybrid(
-            stage_cfg["pseudo_csv"], img_root, "unlabeled",
-            img_size=int(IMG_SIZE),
-            two_views=False,
-            include_label=True
-        )
-        ds_pseudo.split = "train"  # 使用训练增强
+    ds_pseudo = FER2013Hybrid(
+        stage_cfg["pseudo_csv"],
+        img_root,
+        "unlabeled",
+        img_size=int(IMG_SIZE),
+        two_views=False,
+        include_label=True,
+    )
+    ds_pseudo.split = "train"
 
-        # 构建权重
-        real_weights = [1.0] * len(ds_real)
-        real_is_pseudo = [False] * len(ds_real)
+    real_weights = [1.0] * len(ds_real)
+    real_is_pseudo = [False] * len(ds_real)
 
-        valid_confs = [pseudo_confs[i] for i in valid_indices]
-        pseudo_weights = [
-            (max(0.0, min(1.0, c)) ** conf_power) * pseudo_scale
-            for c in valid_confs
-        ]
-        pseudo_is_pseudo = [True] * len(valid_indices)
+    valid_confs = [pseudo_confs[i] for i in valid_indices]
+    pseudo_weights = [
+        (max(0.0, min(1.0, c)) ** conf_power) * pseudo_scale
+        for c in valid_confs
+    ]
+    pseudo_is_pseudo = [True] * len(valid_indices)
 
-        # 包装加权数据集
-        ds_real_w = WeightedDataset(ds_real, real_weights, real_is_pseudo)
-        ds_pseudo_w = WeightedDataset(Subset(ds_pseudo, valid_indices), pseudo_weights, pseudo_is_pseudo)
+    ds_real_w = WeightedDataset(ds_real, real_weights, real_is_pseudo)
+    ds_pseudo_w = WeightedDataset(Subset(ds_pseudo, valid_indices), pseudo_weights, pseudo_is_pseudo)
 
-        # 合并
-        ds_train = ConcatDataset([ds_real_w, ds_pseudo_w])
-        train_loader = _make_loader(ds_train, stage_cfg["batch_size"], True, stage_cfg)
+    ds_train = ConcatDataset([ds_real_w, ds_pseudo_w])
+    train_loader = _make_loader(ds_train, stage_cfg["batch_size"], True, stage_cfg)
 
-        print(f"[INFO] 训练集: 真实={len(ds_real)}, 伪标签={len(valid_indices)}, 总计={len(ds_train)}")
-    else:
-        # 纯监督模式
-        train_loader = _make_loader(ds_real, stage_cfg["batch_size"], True, stage_cfg)
-        print(f"[INFO] 训练集: 真实={len(ds_real)} (纯监督)")
-
-    # 验证/测试集
     ds_val = FER2013Hybrid(stage_cfg["val_csv"], img_root, "val", img_size=int(IMG_SIZE))
     ds_test = FER2013Hybrid(stage_cfg["test_csv"], img_root, "test", img_size=int(IMG_SIZE))
     val_loader = _make_loader(ds_val, stage_cfg["batch_size"], False, stage_cfg)
     test_loader = _make_loader(ds_test, stage_cfg["batch_size"], False, stage_cfg)
 
+    print(f"[INFO] 训练集: 真实={len(ds_real)}, 伪标签={len(valid_indices)}, 总计={len(ds_train)}")
     print(f"[INFO] 验证集: {len(ds_val)}, 测试集: {len(ds_test)}")
 
     # ========================================================
@@ -641,30 +590,26 @@ def main():
     model = get_model(
         str(stage_cfg.get("model_variant", "large")),
         num_classes=7,
-        pretrained=bool(stage_cfg.get("pretrained", True)) and args.stage == 1,
+        pretrained=bool(stage_cfg.get("pretrained", False)),
         device=device,
         verbose=True,
-        compile_model=False
+        compile_model=False,
     )
 
-    # 加载前一阶段权重（Stage2+）
-    if stage_cfg["init_ckpt"]:
-        load_ckpt_into_model(model, stage_cfg["init_ckpt"], device)
+    load_ckpt_into_model(model, str(stage_cfg["init_ckpt"]), device)
 
     # ========================================================
-    # CB Loss权重
+    # CB Loss 权重
     # ========================================================
     beta = float(stage_cfg.get("beta", 0.999))
-    include_pseudo = is_ssl and bool(stage_cfg.get("cb_include_pseudo", False))
+    include_pseudo = bool(stage_cfg.get("cb_include_pseudo", False))
 
     if include_pseudo:
-        # 不推荐：包含伪标签统计
         real_labels = extract_labels(ds_real)
         pseudo_labels = [ds_pseudo.samples[i]["label"] for i in valid_indices]
         labels = real_labels + pseudo_labels
         print(f"[INFO] CB统计: 真实({len(real_labels)}) + 伪标签({len(pseudo_labels)})")
     else:
-        # 推荐：仅用真实样本
         labels = extract_labels(ds_real)
         print(f"[INFO] CB统计: 仅用真实样本 ({len(labels)}个)")
 
@@ -672,12 +617,12 @@ def main():
     print(f"[INFO] CB权重: {class_w.detach().cpu().numpy().round(4).tolist()}")
 
     # ========================================================
-    # 优化器与AMP
+    # 优化器与 AMP
     # ========================================================
     optimizer = AdamW(
         model.parameters(),
         lr=float(stage_cfg["lr"]),
-        weight_decay=float(stage_cfg["weight_decay"])
+        weight_decay=float(stage_cfg["weight_decay"]),
     )
 
     use_amp = bool(stage_cfg.get("use_amp", False)) and str(device).startswith("cuda")
@@ -686,15 +631,25 @@ def main():
     # ========================================================
     # 日志初始化
     # ========================================================
-    log_csv = stage_cfg["log_csv"]
+    log_csv = str(stage_cfg["log_csv"])
     if not os.path.exists(log_csv):
         with open(log_csv, "w", newline="", encoding="utf-8") as f:
             writer = csv.writer(f)
-            header = ["time", "epoch", "lr", "train_loss", "train_acc", "train_f1",
-                      "val_loss", "val_acc", "val_f1", "test_loss", "test_acc", "test_f1"]
-            if is_ssl:
-                header.append("ramp_coeff")
-            writer.writerow(header)
+            writer.writerow([
+                "time",
+                "epoch",
+                "lr",
+                "train_loss",
+                "train_acc",
+                "train_f1",
+                "val_loss",
+                "val_acc",
+                "val_f1",
+                "test_loss",
+                "test_acc",
+                "test_f1",
+                "ramp_coeff",
+            ])
 
     # ========================================================
     # 训练循环
@@ -705,67 +660,73 @@ def main():
 
     print(f"\n{'=' * 60}")
     print(f"开始训练 (共{total_epochs}轮)")
-    if is_ssl:
-        print(f"Ramp-up: 前{stage_cfg['pseudo_rampup_epochs']}轮渐进引入伪标签")
+    print(f"Ramp-up: 前{stage_cfg['pseudo_rampup_epochs']}轮渐进引入伪标签")
     print(f"{'=' * 60}\n")
 
+    va_f1 = 0.0
+    te_f1 = 0.0
+
     for epoch in range(total_epochs):
-        # 学习率调度
         lr = cosine_warmup_lr(
             float(stage_cfg["lr"]),
             float(stage_cfg["lr_floor"]),
             int(stage_cfg["warmup_epochs"]),
             total_epochs,
-            epoch
+            epoch,
         )
         for pg in optimizer.param_groups:
             pg["lr"] = lr
 
-        # Ramp-up系数
-        ramp = 1.0
-        if is_ssl:
-            ramp_epochs = int(stage_cfg.get("pseudo_rampup_epochs", 0))
-            if ramp_epochs > 0:
-                ramp = min(1.0, (epoch + 1) / ramp_epochs)
+        ramp_epochs = int(stage_cfg.get("pseudo_rampup_epochs", 0))
+        ramp = 1.0 if ramp_epochs <= 0 else min(1.0, (epoch + 1) / ramp_epochs)
 
-        # 训练
         t0 = time.time()
         tr_loss, tr_acc, tr_f1 = train_one_epoch(
-            model, optimizer, train_loader, device, epoch, stage_cfg, class_w, scaler, is_ssl
+            model,
+            optimizer,
+            train_loader,
+            device,
+            epoch,
+            stage_cfg,
+            class_w,
+            scaler,
+            is_ssl,
         )
 
-        # 验证
         va_loss, va_acc, va_f1 = evaluate(model, val_loader, device)
         te_loss, te_acc, te_f1 = evaluate(model, test_loader, device)
-
         elapsed = time.time() - t0
 
-        # 打印进度
-        msg = (f"[{stage_cfg['stage_name']}] Epoch {epoch + 1:3d}/{total_epochs} | "
-               f"lr={lr:.6f} | "
-               f"Train={tr_loss:.4f}/{tr_acc:.4f}/{tr_f1:.4f} | "
-               f"Val={va_loss:.4f}/{va_acc:.4f}/{va_f1:.4f} | "
-               f"Test={te_loss:.4f}/{te_acc:.4f}/{te_f1:.4f} | "
-               f"{elapsed:.1f}s")
-        if is_ssl:
-            msg += f" | ramp={ramp:.3f}"
-        print(msg)
+        print(
+            f"[{stage_cfg['stage_name']}] Epoch {epoch + 1:3d}/{total_epochs} | "
+            f"lr={lr:.6f} | "
+            f"Train={tr_loss:.4f}/{tr_acc:.4f}/{tr_f1:.4f} | "
+            f"Val={va_loss:.4f}/{va_acc:.4f}/{va_f1:.4f} | "
+            f"Test={te_loss:.4f}/{te_acc:.4f}/{te_f1:.4f} | "
+            f"{elapsed:.1f}s | ramp={ramp:.3f}"
+        )
 
-        # 写日志
         with open(log_csv, "a", newline="", encoding="utf-8") as f:
             writer = csv.writer(f)
-            row = [int(time.time()), epoch + 1, lr,
-                   tr_loss, tr_acc, tr_f1,
-                   va_loss, va_acc, va_f1,
-                   te_loss, te_acc, te_f1]
-            if is_ssl:
-                row.append(f"{ramp:.4f}")
-            writer.writerow(row)
+            writer.writerow([
+                int(time.time()),
+                epoch + 1,
+                lr,
+                tr_loss,
+                tr_acc,
+                tr_f1,
+                va_loss,
+                va_acc,
+                va_f1,
+                te_loss,
+                te_acc,
+                te_f1,
+                f"{ramp:.4f}",
+            ])
 
-        # 早停判断（以Val F1为准）
         if va_f1 > best_f1:
             best_f1 = va_f1
-            torch.save(model.state_dict(), stage_cfg["best_ckpt"])
+            torch.save(model.state_dict(), str(stage_cfg["best_ckpt"]))
             print(f"  -> 保存最优模型 (Val F1={best_f1:.4f})")
             no_improve = 0
         else:
@@ -783,38 +744,28 @@ def main():
     print(f"最优模型: {stage_cfg['best_ckpt']}")
     print(f"{'=' * 60}")
 
-    # 加载最优模型生成详细评估
     print("\n[INFO] 生成详细评估报告...")
-    load_ckpt_into_model(model, stage_cfg["best_ckpt"], device)
+    load_ckpt_into_model(model, str(stage_cfg["best_ckpt"]), device)
 
-    # 验证集混淆矩阵
     cm_val, prec_val, rec_val, f1_val = confusion_and_per_class(model, val_loader, device=device)
-    save_confusion_png(cm_val,
-                       os.path.join(os.path.dirname(stage_cfg["best_ckpt"]), f"val_confusion_stage{args.stage}.png"),
-                       f"Stage{args.stage} Val Confusion")
+    save_confusion_png(cm_val, str(stage_cfg["val_confusion_png"]), f"Stage{STAGE_ID} Val Confusion")
 
-    # 测试集混淆矩阵
     cm_test, prec_test, rec_test, f1_test = confusion_and_per_class(model, test_loader, device=device)
-    save_confusion_png(cm_test,
-                       os.path.join(os.path.dirname(stage_cfg["best_ckpt"]), f"test_confusion_stage{args.stage}.png"),
-                       f"Stage{args.stage} Test Confusion")
+    save_confusion_png(cm_test, str(stage_cfg["test_confusion_png"]), f"Stage{STAGE_ID} Test Confusion")
 
-    # 保存详细指标
     metrics = {
-        "stage": args.stage,
+        "stage": STAGE_ID,
         "stage_name": stage_cfg["stage_name"],
         "best_val_f1": float(best_f1),
         "final_val_f1": float(va_f1),
         "final_test_f1": float(te_f1),
         "val_per_class": {"precision": prec_val, "recall": rec_val, "f1": f1_val},
         "test_per_class": {"precision": prec_test, "recall": rec_test, "f1": f1_test},
-        "config": {k: str(v) if isinstance(v, os.PathLike) else v
-                   for k, v in stage_cfg.items() if k != "device"},
-        "timestamp": int(time.time())
+        "config": {k: str(v) if isinstance(v, os.PathLike) else v for k, v in stage_cfg.items() if k != "device"},
+        "timestamp": int(time.time()),
     }
 
-    metrics_path = os.path.join(os.path.dirname(stage_cfg["best_ckpt"]),
-                                f"metrics_stage{args.stage}.json")
+    metrics_path = str(stage_cfg["metrics_json"])
     with open(metrics_path, "w", encoding="utf-8") as f:
         json.dump(metrics, f, indent=2, ensure_ascii=False)
 
