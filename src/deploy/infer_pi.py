@@ -14,7 +14,7 @@ try:
     import tflite_runtime.interpreter as tflite
     TFLITE_BACKEND = "tflite-runtime"
 except ImportError:
-    import tensorflow as tf
+    import tensorflow as tf # pyright: ignore[reportMissingModuleSource]
     tflite = tf.lite
     TFLITE_BACKEND = "tensorflow-lite"
 
