@@ -58,7 +58,7 @@ class Config:
     track_max_missing: int = 10
     track_max_dist: float = 90.0
 
-    save_dir: str = "/home/amina/workspaces/fer-pi5/docs/图片"
+    save_dir: str = "/home/amina/workspaces/fer-pi5/docs/图片/best_by_class"
     save_min_conf: float = 0.55
     save_min_sharpness: float = 60.0
     mirror_flip: bool = True
