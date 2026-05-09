@@ -1,18 +1,3 @@
-#!/usr/bin/env python3
-# -*- coding: utf-8 -*-
-"""
-train_stage2传统.py
-
-第二阶段训练：真实标注数据 + 伪标签数据联合训练。
-采用置信度加权策略，支持渐进式引入伪标签（ramp-up）。
-与train_stage1.py保持完全统一的代码风格和配置结构。
-
-核心创新：
-    1. 真实样本与伪标签样本的差异化权重（真实=1.0，伪标签=conf^power）
-    2. Ramp-up策略：前N个epoch逐步增加伪标签贡献，稳定训练初期
-    3. 类别均衡：沿用CB loss，仅基于真实样本统计（更稳定）
-"""
-
 import os
 import csv
 import math
