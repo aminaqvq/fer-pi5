@@ -6,8 +6,8 @@ from collections import deque
 from tqdm import tqdm  # 导入 tqdm
 
 # ===== 配置 =====
-TFLITE_PATH = r"D:\fer-pi5\checkpoints\exported\tf_model\model.sim_float32.tflite"
-YUNET_PATH = r"D:\fer-pi5\checkpoints\exported\face_detection_yunet_2023mar.onnx"
+TFLITE_PATH = r"F:\fer-pi5\export\model_fp16.tflite"
+YUNET_PATH = r"F:\fer-pi5\export\face_detection_yunet_2023mar.onnx"
 IMG_SIZE = 224
 LABELS = ["anger", "disgust", "fear", "happy", "sad", "surprise", "neutral"]
 
