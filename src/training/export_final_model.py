@@ -65,7 +65,7 @@ DEFAULT_CONFIG: Dict[str, Any] = {
     "input_name": "input",
     "output_name": "logits",
     "input_layout": "NCHW",
-    "opset": 17,
+    "opset": 18,
     "try_dynamo_export": True,
     "dynamic_batch": False,
     "onnx_simplify": True,
@@ -333,6 +333,11 @@ def convert_onnx_to_saved_model(onnx_path: Path, saved_model_dir: Path, cfg: Map
     onnx2tf.convert(
         input_onnx_file_path=str(onnx_path),
         output_folder_path=str(saved_model_dir),
+        # onnx2tf >=2.4.0 defaults to flatbuffer_direct, whose SavedModel
+        # exporter currently fails on MobileNetV3 HARD_SWISH. Use the legacy
+        # TensorFlow converter path because the rest of this script expects
+        # a real SavedModel directory and then calls tf.lite.TFLiteConverter.
+        tflite_backend="tf_converter",
         copy_onnx_input_output_names_to_tflite=True,
         non_verbose=True,
         output_signaturedefs=True,

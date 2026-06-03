@@ -1,0 +1,53 @@
+{
+  "fit_count": 101597,
+  "inner_val_count": 11289,
+  "audit_count": 28219,
+  "fit_class_counts": {
+    "anger": 7179,
+    "disgust": 3978,
+    "fear": 3950,
+    "happy": 35534,
+    "sad": 11651,
+    "surprise": 8635,
+    "neutral": 30670
+  },
+  "inner_val_class_counts": {
+    "anger": 798,
+    "disgust": 442,
+    "fear": 439,
+    "happy": 3948,
+    "sad": 1294,
+    "surprise": 960,
+    "neutral": 3408
+  },
+  "audit_class_counts": {
+    "anger": 1994,
+    "disgust": 1105,
+    "fear": 1097,
+    "happy": 9870,
+    "sad": 3236,
+    "surprise": 2398,
+    "neutral": 8519
+  },
+  "sampler": {
+    "sampler": "BalancedClassBatchSampler",
+    "batch_size": 126,
+    "samples_per_class_per_batch": 18,
+    "class_counts": {
+      "anger": 7179,
+      "disgust": 3978,
+      "fear": 3950,
+      "happy": 35534,
+      "sad": 11651,
+      "surprise": 8635,
+      "neutral": 30670
+    },
+    "per_class_per_epoch": 3942,
+    "batches_per_epoch": 219,
+    "samples_per_epoch": 27594,
+    "replacement": false
+  },
+  "fold": 3,
+  "audit_indices_min": 17,
+  "audit_indices_max": 141103
+}

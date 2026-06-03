@@ -1,0 +1,7 @@
+{
+  "status": "trained",
+  "fold": 3,
+  "best_epoch": 38,
+  "best_inner_val_global_macro_f1": 0.6642854093311151,
+  "best_checkpoint": "D:\\fer-pi5\\runs\\audit\\oof_train_audit_20260602_212638_seed42\\folds\\fold_3\\checkpoints\\best_model.pth"
+}

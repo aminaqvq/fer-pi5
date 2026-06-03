@@ -32,7 +32,7 @@ except Exception as exc:
 # ---------------------------------------------------------------------------
 # Recommended:
 #   set FER_PROJECT_ROOT=F:\fer-pi5
-PROJECT_ROOT = Path(os.environ.get("FER_PROJECT_ROOT", r"D:\fer-pi5"))
+PROJECT_ROOT = Path(os.environ.get("FER_PROJECT_ROOT", r"/"))
 
 
 def _p(*parts: str) -> str:

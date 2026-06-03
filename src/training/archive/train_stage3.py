@@ -1,4 +1,3 @@
-"""PyCharm lazy-run launcher for refactored Stage 3 semi-supervised training."""
 from __future__ import annotations
 
 from train_core import main

@@ -1,0 +1,382 @@
+{
+  "run_id": "stage2_final_rebalanced_20260603_145232",
+  "stage_name": "stage2_final",
+  "created_at_utc": "2026-06-03T06:53:48.202925+00:00",
+  "project_root": "D:\\fer-pi5",
+  "unlabeled_csv": "D:\\fer-pi5\\data\\csv\\unlabeled.csv",
+  "unlabeled_csv_sha256": "ea0fc0ba4269f8f0a93eda4d8f5dd35983eada4560a937fe353d973f3d404cba",
+  "teacher_ckpt": "D:\\fer-pi5\\checkpoints\\best_model_stage2_balanced_clean.pth",
+  "teacher_ckpt_sha256": "f5deea41f0ec61a774e9a934121ce475a52592113d5ed50d10d7dd6c1acc97df",
+  "output_csv": "D:\\fer-pi5\\data\\csv\\pseudo_labeled_stage2_final.csv",
+  "output_csv_sha256": "761b5a5be352a8c3c4b1b68aad2bd7a1cef6c9fc6b62a61321687acee6a1ac19",
+  "compatibility_alias": "D:\\fer-pi5\\data\\csv\\pseudo_labeled_stage2.csv",
+  "label_order": [
+    "anger",
+    "disgust",
+    "fear",
+    "happy",
+    "sad",
+    "surprise",
+    "neutral"
+  ],
+  "selection_policy": {
+    "name": "complete_pool_class_adaptive_threshold_topk",
+    "class_min_conf": {
+      "anger": 0.92,
+      "disgust": 0.88,
+      "fear": 0.88,
+      "happy": 0.96,
+      "sad": 0.91,
+      "surprise": 0.92,
+      "neutral": 0.95
+    },
+    "class_max_per_class": {
+      "anger": 3000,
+      "disgust": 2500,
+      "fear": 2500,
+      "happy": 4500,
+      "sad": 3000,
+      "surprise": 3000,
+      "neutral": 4500
+    },
+    "min_margin": 0.08,
+    "max_entropy": null,
+    "ranking": [
+      "confidence desc",
+      "margin desc",
+      "entropy asc",
+      "source_index asc"
+    ]
+  },
+  "counts": {
+    "unlabeled_total": 44095,
+    "candidate_total": 44095,
+    "selected_total": 16990,
+    "rejected_total": 27105
+  },
+  "selected_summary": {
+    "total": 16990,
+    "per_class": {
+      "anger": {
+        "label": 0,
+        "count": 1776,
+        "confidence": {
+          "min": 0.920185923576355,
+          "p05": 0.9312209933996201,
+          "p25": 0.9549080729484558,
+          "median": 0.9706142544746399,
+          "mean": 0.9670866038482469,
+          "p75": 0.9816625118255615,
+          "p95": 0.9923032522201538,
+          "max": 0.9995984435081482
+        }
+      },
+      "disgust": {
+        "label": 1,
+        "count": 837,
+        "confidence": {
+          "min": 0.8806010484695435,
+          "p05": 0.8996701002120971,
+          "p25": 0.9448410868644714,
+          "median": 0.9608442187309265,
+          "mean": 0.9551333038040671,
+          "p75": 0.9741317629814148,
+          "p95": 0.9868721604347229,
+          "max": 0.997753918170929
+        }
+      },
+      "fear": {
+        "label": 2,
+        "count": 697,
+        "confidence": {
+          "min": 0.8804352879524231,
+          "p05": 0.8949214577674866,
+          "p25": 0.9322954416275024,
+          "median": 0.9578402638435364,
+          "mean": 0.9523460017557295,
+          "p75": 0.9769625663757324,
+          "p95": 0.9924917697906493,
+          "max": 0.9976835250854492
+        }
+      },
+      "happy": {
+        "label": 3,
+        "count": 4500,
+        "confidence": {
+          "min": 0.9742221236228943,
+          "p05": 0.9747626125812531,
+          "p25": 0.9768861830234528,
+          "median": 0.979893147945404,
+          "mean": 0.9808568119605382,
+          "p75": 0.9838629812002182,
+          "p95": 0.9903779447078704,
+          "max": 0.9983867406845093
+        }
+      },
+      "sad": {
+        "label": 4,
+        "count": 2502,
+        "confidence": {
+          "min": 0.9100714325904846,
+          "p05": 0.919912588596344,
+          "p25": 0.9492589384317398,
+          "median": 0.96846142411232,
+          "mean": 0.9640355213082952,
+          "p75": 0.9819695353507996,
+          "p95": 0.9931627243757248,
+          "max": 0.9997103810310364
+        }
+      },
+      "surprise": {
+        "label": 5,
+        "count": 2178,
+        "confidence": {
+          "min": 0.9201460480690002,
+          "p05": 0.9294486314058303,
+          "p25": 0.9512881338596344,
+          "median": 0.9654874205589294,
+          "mean": 0.9633633693332952,
+          "p75": 0.9765781313180923,
+          "p95": 0.9907463371753693,
+          "max": 0.9988440275192261
+        }
+      },
+      "neutral": {
+        "label": 6,
+        "count": 4500,
+        "confidence": {
+          "min": 0.9647387266159058,
+          "p05": 0.9665428429841996,
+          "p25": 0.9732363075017929,
+          "median": 0.9801794588565826,
+          "mean": 0.9801004091501236,
+          "p75": 0.9867037087678909,
+          "p95": 0.9940890163183213,
+          "max": 0.9995163679122925
+        }
+      }
+    },
+    "confidence": {
+      "min": 0.8804352879524231,
+      "p05": 0.9320308029651642,
+      "p25": 0.9667619317770004,
+      "median": 0.9769067764282227,
+      "mean": 0.9720604670195105,
+      "p75": 0.9834646135568619,
+      "p95": 0.9924834579229355,
+      "max": 0.9997103810310364
+    },
+    "margin": {
+      "min": 0.778540849685669,
+      "p05": 0.9024051606655121,
+      "p25": 0.9552135616540909,
+      "median": 0.9702901840209961,
+      "mean": 0.9618800018905822,
+      "p75": 0.9784260839223862,
+      "p95": 0.9898195952177048,
+      "max": 0.9995954036712646
+    },
+    "entropy": {
+      "min": 0.0031031067483127117,
+      "p05": 0.05591831374913454,
+      "p25": 0.11101120710372925,
+      "median": 0.14805544167757034,
+      "mean": 0.16571167908546422,
+      "p75": 0.19810250028967857,
+      "p95": 0.34577349424362175,
+      "max": 0.5683359503746033
+    }
+  },
+  "rejected_summary": {
+    "total": 27105,
+    "per_class": {
+      "anger": {
+        "label": 0,
+        "count": 1392,
+        "confidence": {
+          "min": 0.23727121949195862,
+          "p05": 0.36595625430345535,
+          "p25": 0.5279324948787689,
+          "median": 0.7147418856620789,
+          "mean": 0.6796613566406157,
+          "p75": 0.8464812338352203,
+          "p95": 0.9114695429801941,
+          "max": 0.9199857115745544
+        }
+      },
+      "disgust": {
+        "label": 1,
+        "count": 759,
+        "confidence": {
+          "min": 0.2221948653459549,
+          "p05": 0.3396039128303528,
+          "p25": 0.48617757856845856,
+          "median": 0.6091485023498535,
+          "mean": 0.6099697666559295,
+          "p75": 0.7442489564418793,
+          "p95": 0.8600626647472381,
+          "max": 0.8795680999755859
+        }
+      },
+      "fear": {
+        "label": 2,
+        "count": 765,
+        "confidence": {
+          "min": 0.23882049322128296,
+          "p05": 0.36053386926651,
+          "p25": 0.49500229954719543,
+          "median": 0.6351991891860962,
+          "mean": 0.6294932977825988,
+          "p75": 0.7744349837303162,
+          "p95": 0.8672494530677795,
+          "max": 0.8799064755439758
+        }
+      },
+      "happy": {
+        "label": 3,
+        "count": 10972,
+        "confidence": {
+          "min": 0.2542884051799774,
+          "p05": 0.5645466506481172,
+          "p25": 0.913001149892807,
+          "median": 0.9586988389492035,
+          "mean": 0.9002423419912845,
+          "p75": 0.9680425971746445,
+          "p95": 0.9729721546173096,
+          "max": 0.9742200970649719
+        }
+      },
+      "sad": {
+        "label": 4,
+        "count": 2518,
+        "confidence": {
+          "min": 0.20177705585956573,
+          "p05": 0.3993009611964226,
+          "p25": 0.5395632535219193,
+          "median": 0.6860898733139038,
+          "mean": 0.6745509181032586,
+          "p75": 0.822942242026329,
+          "p95": 0.8970657765865326,
+          "max": 0.9099247455596924
+        }
+      },
+      "surprise": {
+        "label": 5,
+        "count": 1624,
+        "confidence": {
+          "min": 0.25819507241249084,
+          "p05": 0.40117130130529405,
+          "p25": 0.5535922050476074,
+          "median": 0.7155411839485168,
+          "mean": 0.6934130377333446,
+          "p75": 0.8477054983377457,
+          "p95": 0.9098770380020141,
+          "max": 0.919855535030365
+        }
+      },
+      "neutral": {
+        "label": 6,
+        "count": 9075,
+        "confidence": {
+          "min": 0.21201348304748535,
+          "p05": 0.46667314767837526,
+          "p25": 0.684084415435791,
+          "median": 0.853213369846344,
+          "mean": 0.7933964153212949,
+          "p75": 0.9336530566215515,
+          "p95": 0.9606274425983429,
+          "max": 0.9647306799888611
+        }
+      }
+    },
+    "confidence": {
+      "min": 0.20177705585956573,
+      "p05": 0.44935216307640075,
+      "p25": 0.6813011765480042,
+      "median": 0.8789477348327637,
+      "mean": 0.8040129667799799,
+      "p75": 0.9561890363693237,
+      "p95": 0.9712429523468018,
+      "max": 0.9742200970649719
+    },
+    "margin": {
+      "min": 4.139542579650879e-05,
+      "p05": 0.091439688205719,
+      "p25": 0.47693881392478943,
+      "median": 0.8125298023223877,
+      "mean": 0.6875272346717188,
+      "p75": 0.9415609836578369,
+      "p95": 0.9640857338905334,
+      "max": 0.9694395661354065
+    },
+    "entropy": {
+      "min": 0.14692047238349915,
+      "p05": 0.17997921705245973,
+      "p25": 0.25041860342025757,
+      "median": 0.5104274749755859,
+      "mean": 0.6113612422444376,
+      "p75": 0.8994916677474976,
+      "p95": 1.358555793762207,
+      "max": 1.8791007995605469
+    }
+  },
+  "config": {
+    "project_root": "D:\\fer-pi5",
+    "stage_name": "stage2_final",
+    "unlabeled_csv": "D:\\fer-pi5\\data\\csv\\unlabeled.csv",
+    "img_root": null,
+    "teacher_ckpt": "D:\\fer-pi5\\checkpoints\\best_model_stage2_balanced_clean.pth",
+    "model_variant": "large",
+    "num_classes": 7,
+    "pretrained": false,
+    "strict_checkpoint": true,
+    "compile_model": false,
+    "device": "cuda",
+    "batch_size": 256,
+    "num_workers": 4,
+    "pin_memory": true,
+    "persistent_workers": true,
+    "prefetch_factor": 2,
+    "img_size": 224,
+    "strict_pixels": true,
+    "seed": 42,
+    "tta_hflip": true,
+    "default_min_conf": 0.92,
+    "class_min_conf": {
+      "anger": 0.92,
+      "disgust": 0.88,
+      "fear": 0.88,
+      "happy": 0.96,
+      "sad": 0.91,
+      "surprise": 0.92,
+      "neutral": 0.95
+    },
+    "default_max_per_class": null,
+    "class_max_per_class": {
+      "anger": 3000,
+      "disgust": 2500,
+      "fear": 2500,
+      "happy": 4500,
+      "sad": 3000,
+      "surprise": 3000,
+      "neutral": 4500
+    },
+    "min_margin": 0.08,
+    "max_entropy": null,
+    "run_base_dir": "D:\\fer-pi5\\runs\\pseudo_labels",
+    "output_dir": "D:\\fer-pi5\\data\\csv",
+    "output_csv_name": "pseudo_labeled_stage2_final.csv",
+    "compatibility_alias": "pseudo_labeled_stage2.csv",
+    "write_all_candidates": true,
+    "include_probs_in_audit": true,
+    "include_pixels_in_audit": false
+  },
+  "audit_files": {
+    "run_pseudo_csv": "D:\\fer-pi5\\runs\\pseudo_labels\\stage2_final_rebalanced_20260603_145232\\pseudo_labeled_stage2_final.csv",
+    "selected_audit": "D:\\fer-pi5\\runs\\pseudo_labels\\stage2_final_rebalanced_20260603_145232\\selected_pseudo_labels_audit.csv",
+    "rejected_audit": "D:\\fer-pi5\\runs\\pseudo_labels\\stage2_final_rebalanced_20260603_145232\\rejected_pseudo_labels_audit.csv",
+    "all_candidates_audit": "D:\\fer-pi5\\runs\\pseudo_labels\\stage2_final_rebalanced_20260603_145232\\all_candidates_audit.csv",
+    "class_counts": "D:\\fer-pi5\\runs\\pseudo_labels\\stage2_final_rebalanced_20260603_145232\\class_counts.csv",
+    "log": "D:\\fer-pi5\\runs\\pseudo_labels\\stage2_final_rebalanced_20260603_145232\\pseudo_rebalance_generation.log"
+  }
+}

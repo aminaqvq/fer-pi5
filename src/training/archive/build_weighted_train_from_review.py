@@ -444,7 +444,7 @@ def build_weighted_train(
 
 def parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Build sample-weighted FER train CSV from manual label review.")
-    parser.add_argument("--project-root", type=str, default=os.environ.get("FER_PROJECT_ROOT", r"D:\fer-pi5"))
+    parser.add_argument("--project-root", type=str, default=os.environ.get("FER_PROJECT_ROOT", r"/"))
     parser.add_argument("--train-csv", type=str, default=r"data\csv\train.csv")
     parser.add_argument("--review-csv", type=str, default=None, help="manual_label_review.csv. Default: latest under runs/audit.")
     parser.add_argument("--output-dir", type=str, default=r"data\csv\clean_v2")

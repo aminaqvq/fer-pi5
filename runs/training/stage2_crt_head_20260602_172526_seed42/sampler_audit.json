@@ -1,0 +1,18 @@
+{
+  "sampler": "BalancedClassBatchSampler",
+  "batch_size": 126,
+  "samples_per_class_per_batch": 18,
+  "class_counts": {
+    "anger": 9971,
+    "disgust": 5525,
+    "fear": 5486,
+    "happy": 49352,
+    "sad": 16181,
+    "surprise": 11993,
+    "neutral": 42597
+  },
+  "per_class_per_epoch": 5472,
+  "batches_per_epoch": 304,
+  "samples_per_epoch": 38304,
+  "replacement": false
+}

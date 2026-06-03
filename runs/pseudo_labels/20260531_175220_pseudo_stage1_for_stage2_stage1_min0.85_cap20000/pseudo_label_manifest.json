@@ -1,0 +1,160 @@
+{
+  "run_id": "20260531_175220_pseudo_stage1_for_stage2_stage1_min0.85_cap20000",
+  "created_at_utc": "2026-05-31T09:55:03+00:00",
+  "config": {
+    "project_root": "F:\\fer-pi5",
+    "stage_name": "pseudo_stage1_for_stage2",
+    "teacher_stage": "stage1",
+    "unlabeled_csv": "F:\\fer-pi5\\data\\csv\\unlabeled.csv",
+    "img_base": null,
+    "teacher_ckpt": "F:\\fer-pi5\\checkpoints\\best_model_stage1_refactored.pth",
+    "fallback_teacher_ckpts": [
+      "F:\\fer-pi5\\checkpoints\\best_model_stage1.pth"
+    ],
+    "output_dir": "F:\\fer-pi5\\data\\csv",
+    "run_dir_base": "F:\\fer-pi5\\runs\\pseudo_labels",
+    "out_csv_name": "pseudo_labeled_stage1_refactored.csv",
+    "model_variant": "large",
+    "num_classes": 7,
+    "img_size": 224,
+    "device": "cuda",
+    "batch_size": 256,
+    "num_workers": 4,
+    "pin_memory": true,
+    "persistent_workers": true,
+    "prefetch_factor": 2,
+    "seed": 42,
+    "min_conf": 0.85,
+    "max_per_class": 20000,
+    "tta_hflip": true,
+    "strict_checkpoint": true,
+    "allow_empty_output": false,
+    "write_candidates_csv": true,
+    "write_probability_columns": false,
+    "copy_outputs_to_csv_dir": true,
+    "extra_output_aliases": [
+      "pseudo_labeled.csv"
+    ],
+    "output_usage": "pseudo"
+  },
+  "teacher_checkpoint": "F:\\fer-pi5\\checkpoints\\best_model_stage1_refactored.pth",
+  "teacher_checkpoint_sha256": "a054be926f8a739437e3a4b5bfd7c90b63252566fad32677d9a1879699c109c0",
+  "unlabeled_csv": "F:\\fer-pi5\\data\\csv\\unlabeled.csv",
+  "unlabeled_csv_sha256": "ea0fc0ba4269f8f0a93eda4d8f5dd35983eada4560a937fe353d973f3d404cba",
+  "total_unlabeled": 44095,
+  "candidates_above_threshold": 25889,
+  "selected": 25889,
+  "selection_rate": 0.5871187209434177,
+  "selection_policy": "scan_all_then_sort_by_conf_desc_then_topk_per_class",
+  "per_class_candidates": [
+    1438,
+    634,
+    534,
+    13148,
+    1629,
+    1919,
+    6587
+  ],
+  "per_class_selected": [
+    1438,
+    634,
+    534,
+    13148,
+    1629,
+    1919,
+    6587
+  ],
+  "confidence_summary": {
+    "overall": {
+      "count": 25889,
+      "min": 0.8500069379806519,
+      "mean": 0.9466710714334463,
+      "median": 0.9597984552383423,
+      "p90": 0.9772128701210022,
+      "p99": 0.9901886558532714,
+      "max": 0.9999763369560242
+    },
+    "per_class": {
+      "0": {
+        "count": 1438,
+        "min": 0.8500515222549438,
+        "mean": 0.9410076050582615,
+        "median": 0.9500805139541626,
+        "p90": 0.9825351953506469,
+        "p99": 0.9933931100368499,
+        "max": 0.9984320998191833
+      },
+      "1": {
+        "count": 634,
+        "min": 0.8508856892585754,
+        "mean": 0.953716165635864,
+        "median": 0.9649152159690857,
+        "p90": 0.9885635018348694,
+        "p99": 0.9949550068378449,
+        "max": 0.9973874092102051
+      },
+      "2": {
+        "count": 534,
+        "min": 0.8501256704330444,
+        "mean": 0.9464855203021332,
+        "median": 0.9584745764732361,
+        "p90": 0.9930208384990692,
+        "p99": 0.9985561728477478,
+        "max": 0.9999763369560242
+      },
+      "3": {
+        "count": 13148,
+        "min": 0.8501271605491638,
+        "mean": 0.9565136437362401,
+        "median": 0.9647097587585449,
+        "p90": 0.9760196566581726,
+        "p99": 0.9829980605840684,
+        "max": 0.9920164346694946
+      },
+      "4": {
+        "count": 1629,
+        "min": 0.8500069379806519,
+        "mean": 0.9367364272520979,
+        "median": 0.9464943408966064,
+        "p90": 0.9816945314407348,
+        "p99": 0.9937174844741822,
+        "max": 0.9993916749954224
+      },
+      "5": {
+        "count": 1919,
+        "min": 0.8502627015113831,
+        "mean": 0.9397037870688884,
+        "median": 0.9472208023071289,
+        "p90": 0.9771737337112427,
+        "p99": 0.9896845304965973,
+        "max": 0.9982067942619324
+      },
+      "6": {
+        "count": 6587,
+        "min": 0.8500108122825623,
+        "mean": 0.9320847912842395,
+        "median": 0.9416379332542419,
+        "p90": 0.9761597752571106,
+        "p99": 0.986159553527832,
+        "max": 0.9947104454040527
+      }
+    }
+  },
+  "elapsed_seconds": 63.90310478210449,
+  "outputs": {
+    "run_dir": "F:\\fer-pi5\\runs\\pseudo_labels\\20260531_175220_pseudo_stage1_for_stage2_stage1_min0.85_cap20000",
+    "pseudo_csv_run": "F:\\fer-pi5\\runs\\pseudo_labels\\20260531_175220_pseudo_stage1_for_stage2_stage1_min0.85_cap20000\\pseudo_labeled_stage1_refactored.csv",
+    "pseudo_csv_alias": "F:\\fer-pi5\\data\\csv\\pseudo_labeled_stage1_refactored.csv",
+    "extra_pseudo_csv_aliases": [
+      "F:\\fer-pi5\\data\\csv\\pseudo_labeled.csv"
+    ],
+    "candidates_csv": "F:\\fer-pi5\\runs\\pseudo_labels\\20260531_175220_pseudo_stage1_for_stage2_stage1_min0.85_cap20000\\candidates_above_threshold.csv",
+    "class_counts_csv": "F:\\fer-pi5\\runs\\pseudo_labels\\20260531_175220_pseudo_stage1_for_stage2_stage1_min0.85_cap20000\\class_counts.csv",
+    "log": "F:\\fer-pi5\\runs\\pseudo_labels\\20260531_175220_pseudo_stage1_for_stage2_stage1_min0.85_cap20000\\pseudo_label_generation.log"
+  },
+  "notes": [
+    "The full unlabeled set is scanned before top-k selection.",
+    "Class caps are applied after sorting each class by confidence descending.",
+    "The pseudo CSV keeps label/emotion for compatibility, but these are teacher predictions, not hidden ground truth."
+  ]
+}

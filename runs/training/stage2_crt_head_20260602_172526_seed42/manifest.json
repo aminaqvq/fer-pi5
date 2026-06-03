@@ -1,0 +1,695 @@
+{
+  "status": "finished",
+  "run_id": "stage2_crt_head_20260602_172526_seed42",
+  "run_dir": "D:\\fer-pi5\\runs\\training\\stage2_crt_head_20260602_172526_seed42",
+  "init_ckpt": "D:\\fer-pi5\\checkpoints\\best_model_stage2_balanced_clean.pth",
+  "labels": [
+    "anger",
+    "disgust",
+    "fear",
+    "happy",
+    "sad",
+    "surprise",
+    "neutral"
+  ],
+  "config": {
+    "project_root": "D:\\fer-pi5",
+    "train_csv": "D:\\fer-pi5\\data\\csv\\train.csv",
+    "val_csv": "D:\\fer-pi5\\data\\csv\\val.csv",
+    "test_csv": "D:\\fer-pi5\\data\\csv\\test.csv",
+    "img_base": null,
+    "init_ckpt_candidates": [
+      "D:\\fer-pi5\\checkpoints\\best_model_stage2_balanced_clean.pth",
+      "D:\\fer-pi5\\checkpoints\\best_model_stage1_refactored.pth"
+    ],
+    "runs_dir": "D:\\fer-pi5\\runs\\training",
+    "checkpoint_alias_dir": "D:\\fer-pi5\\checkpoints",
+    "best_alias_name": "best_model_stage2_crt_head.pth",
+    "log_alias_name": "train_stage2_crt_head_log.csv",
+    "sweep_alias_name": "stage2_crt_head_logit_sweep.json",
+    "model_variant": "large",
+    "num_classes": 7,
+    "device": "cuda",
+    "seed": 42,
+    "reset_classifier": true,
+    "train_classifier_only": true,
+    "epochs": 80,
+    "batch_size": 126,
+    "samples_per_class_per_batch": 18,
+    "early_stop_patience": 15,
+    "lr": 0.001,
+    "lr_floor": 1e-05,
+    "warmup_epochs": 3,
+    "weight_decay": 0.0001,
+    "label_smoothing": 0.02,
+    "num_workers": 4,
+    "pin_memory": true,
+    "persistent_workers": true,
+    "prefetch_factor": 2,
+    "use_amp": true,
+    "grad_clip": true,
+    "max_norm": 1.0,
+    "logit_adjustment_taus": [
+      -0.5,
+      -0.25,
+      0.0,
+      0.1,
+      0.2,
+      0.3,
+      0.4,
+      0.5,
+      0.6,
+      0.7,
+      0.8,
+      0.9,
+      1.0,
+      1.1,
+      1.2,
+      1.4,
+      1.6,
+      1.8,
+      2.0
+    ]
+  },
+  "data": {
+    "train_count": 141105,
+    "val_count": 17639,
+    "test_count": 17636,
+    "train_class_counts": {
+      "anger": 9971,
+      "disgust": 5525,
+      "fear": 5486,
+      "happy": 49352,
+      "sad": 16181,
+      "surprise": 11993,
+      "neutral": 42597
+    },
+    "val_class_counts": {
+      "anger": 1246,
+      "disgust": 691,
+      "fear": 686,
+      "happy": 6169,
+      "sad": 2023,
+      "surprise": 1499,
+      "neutral": 5325
+    },
+    "test_class_counts": {
+      "anger": 1246,
+      "disgust": 690,
+      "fear": 686,
+      "happy": 6169,
+      "sad": 2022,
+      "surprise": 1499,
+      "neutral": 5324
+    },
+    "sampler": {
+      "sampler": "BalancedClassBatchSampler",
+      "batch_size": 126,
+      "samples_per_class_per_batch": 18,
+      "class_counts": {
+        "anger": 9971,
+        "disgust": 5525,
+        "fear": 5486,
+        "happy": 49352,
+        "sad": 16181,
+        "surprise": 11993,
+        "neutral": 42597
+      },
+      "per_class_per_epoch": 5472,
+      "batches_per_epoch": 304,
+      "samples_per_epoch": 38304,
+      "replacement": false
+    }
+  },
+  "params": {
+    "total_params": 4210999,
+    "trainable_params": 1239047
+  },
+  "best_epoch": 23,
+  "best_val_global_macro_f1": 0.6796146094711858,
+  "best_test_global_macro_f1": 0.6747761621680242,
+  "best_checkpoint": "D:\\fer-pi5\\runs\\training\\stage2_crt_head_20260602_172526_seed42\\checkpoints\\best_model.pth",
+  "best_alias": "D:\\fer-pi5\\checkpoints\\best_model_stage2_crt_head.pth",
+  "log_alias": "D:\\fer-pi5\\checkpoints\\train_stage2_crt_head_log.csv",
+  "logit_adjustment_sweep": "D:\\fer-pi5\\runs\\training\\stage2_crt_head_20260602_172526_seed42\\evaluation\\logit_adjustment_sweep.json",
+  "logit_adjustment_sweep_alias": "D:\\fer-pi5\\checkpoints\\stage2_crt_head_logit_sweep.json",
+  "logit_adjustment_best_by_val_macro_f1": {
+    "tau": -0.5,
+    "val_global_macro_f1": 0.6821638449915278,
+    "val_acc": 0.7715289982425307,
+    "test_global_macro_f1": 0.6788692288900101,
+    "test_acc": 0.770696303016557,
+    "val": {
+      "loss": 0.9666644471580665,
+      "accuracy": 0.7715289982425307,
+      "global_macro_precision": 0.7129267417112414,
+      "global_macro_recall": 0.660187801856783,
+      "global_macro_f1": 0.6821638449915278,
+      "total": 17639,
+      "confusion": [
+        [
+          789,
+          40,
+          52,
+          59,
+          87,
+          74,
+          145
+        ],
+        [
+          36,
+          347,
+          6,
+          21,
+          63,
+          18,
+          200
+        ],
+        [
+          51,
+          5,
+          324,
+          40,
+          94,
+          102,
+          70
+        ],
+        [
+          27,
+          12,
+          7,
+          5550,
+          76,
+          74,
+          423
+        ],
+        [
+          72,
+          27,
+          68,
+          107,
+          1157,
+          61,
+          531
+        ],
+        [
+          58,
+          15,
+          41,
+          88,
+          57,
+          1085,
+          155
+        ],
+        [
+          46,
+          56,
+          26,
+          350,
+          376,
+          114,
+          4357
+        ]
+      ],
+      "per_class": {
+        "anger": {
+          "precision": 0.7312326227988879,
+          "recall": 0.6332263242375602,
+          "f1": 0.6787096774193548,
+          "support": 1246.0,
+          "tp": 789.0,
+          "fp": 290.0,
+          "fn": 457.0
+        },
+        "disgust": {
+          "precision": 0.6912350597609562,
+          "recall": 0.5021707670043415,
+          "f1": 0.5817267393126571,
+          "support": 691.0,
+          "tp": 347.0,
+          "fp": 155.0,
+          "fn": 344.0
+        },
+        "fear": {
+          "precision": 0.6183206106870229,
+          "recall": 0.47230320699708456,
+          "f1": 0.5355371900826447,
+          "support": 686.0,
+          "tp": 324.0,
+          "fp": 200.0,
+          "fn": 362.0
+        },
+        "happy": {
+          "precision": 0.8930008045052292,
+          "recall": 0.8996595882639001,
+          "f1": 0.8963178294573643,
+          "support": 6169.0,
+          "tp": 5550.0,
+          "fp": 665.0,
+          "fn": 619.0
+        },
+        "sad": {
+          "precision": 0.6057591623036649,
+          "recall": 0.5719228868017795,
+          "f1": 0.5883549453343503,
+          "support": 2023.0,
+          "tp": 1157.0,
+          "fp": 753.0,
+          "fn": 866.0
+        },
+        "surprise": {
+          "precision": 0.7100785340314136,
+          "recall": 0.723815877251501,
+          "f1": 0.7168814007267922,
+          "support": 1499.0,
+          "tp": 1085.0,
+          "fp": 443.0,
+          "fn": 414.0
+        },
+        "neutral": {
+          "precision": 0.740860397891515,
+          "recall": 0.8182159624413146,
+          "f1": 0.7776191326075317,
+          "support": 5325.0,
+          "tp": 4357.0,
+          "fp": 1524.0,
+          "fn": 968.0
+        }
+      }
+    },
+    "test": {
+      "loss": 0.9523973283745529,
+      "accuracy": 0.770696303016557,
+      "global_macro_precision": 0.708411647392346,
+      "global_macro_recall": 0.6584474678922193,
+      "global_macro_f1": 0.6788692288900101,
+      "total": 17636,
+      "confusion": [
+        [
+          800,
+          31,
+          56,
+          54,
+          94,
+          61,
+          150
+        ],
+        [
+          38,
+          316,
+          4,
+          39,
+          68,
+          19,
+          206
+        ],
+        [
+          54,
+          13,
+          320,
+          31,
+          121,
+          78,
+          69
+        ],
+        [
+          20,
+          11,
+          11,
+          5543,
+          73,
+          78,
+          433
+        ],
+        [
+          66,
+          34,
+          65,
+          90,
+          1200,
+          52,
+          515
+        ],
+        [
+          54,
+          14,
+          42,
+          92,
+          45,
+          1114,
+          138
+        ],
+        [
+          71,
+          64,
+          21,
+          349,
+          382,
+          138,
+          4299
+        ]
+      ],
+      "per_class": {
+        "anger": {
+          "precision": 0.7252946509519492,
+          "recall": 0.6420545746388443,
+          "f1": 0.6811409110259685,
+          "support": 1246.0,
+          "tp": 800.0,
+          "fp": 303.0,
+          "fn": 446.0
+        },
+        "disgust": {
+          "precision": 0.6542443064182195,
+          "recall": 0.4579710144927536,
+          "f1": 0.5387894288150044,
+          "support": 690.0,
+          "tp": 316.0,
+          "fp": 167.0,
+          "fn": 374.0
+        },
+        "fear": {
+          "precision": 0.6165703275529865,
+          "recall": 0.46647230320699706,
+          "f1": 0.5311203319502074,
+          "support": 686.0,
+          "tp": 320.0,
+          "fp": 199.0,
+          "fn": 366.0
+        },
+        "happy": {
+          "precision": 0.8943207486285899,
+          "recall": 0.8985248824769007,
+          "f1": 0.8964178863103421,
+          "support": 6169.0,
+          "tp": 5543.0,
+          "fp": 655.0,
+          "fn": 626.0
+        },
+        "sad": {
+          "precision": 0.6051437216338881,
+          "recall": 0.5934718100890207,
+          "f1": 0.599250936329588,
+          "support": 2022.0,
+          "tp": 1200.0,
+          "fp": 783.0,
+          "fn": 822.0
+        },
+        "surprise": {
+          "precision": 0.7233766233766233,
+          "recall": 0.7431621080720481,
+          "f1": 0.7331358999670944,
+          "support": 1499.0,
+          "tp": 1114.0,
+          "fp": 426.0,
+          "fn": 385.0
+        },
+        "neutral": {
+          "precision": 0.7399311531841652,
+          "recall": 0.8074755822689706,
+          "f1": 0.7722292078318664,
+          "support": 5324.0,
+          "tp": 4299.0,
+          "fp": 1511.0,
+          "fn": 1025.0
+        }
+      }
+    }
+  },
+  "final_val": {
+    "loss": 0.954230415272979,
+    "accuracy": 0.7680140597539543,
+    "global_macro_precision": 0.6928835482820306,
+    "global_macro_recall": 0.669213017948476,
+    "global_macro_f1": 0.6796146094711858,
+    "total": 17639,
+    "confusion": [
+      [
+        801,
+        48,
+        63,
+        46,
+        90,
+        75,
+        123
+      ],
+      [
+        39,
+        358,
+        6,
+        20,
+        68,
+        18,
+        182
+      ],
+      [
+        52,
+        6,
+        350,
+        30,
+        94,
+        100,
+        54
+      ],
+      [
+        36,
+        19,
+        16,
+        5514,
+        90,
+        93,
+        401
+      ],
+      [
+        79,
+        36,
+        85,
+        86,
+        1182,
+        69,
+        486
+      ],
+      [
+        60,
+        18,
+        48,
+        68,
+        59,
+        1110,
+        136
+      ],
+      [
+        60,
+        91,
+        34,
+        334,
+        440,
+        134,
+        4232
+      ]
+    ],
+    "per_class": {
+      "anger": {
+        "precision": 0.7107364685004437,
+        "recall": 0.6428571428571429,
+        "f1": 0.6750948166877371,
+        "support": 1246.0,
+        "tp": 801.0,
+        "fp": 326.0,
+        "fn": 445.0
+      },
+      "disgust": {
+        "precision": 0.6215277777777778,
+        "recall": 0.5180897250361794,
+        "f1": 0.5651144435674822,
+        "support": 691.0,
+        "tp": 358.0,
+        "fp": 218.0,
+        "fn": 333.0
+      },
+      "fear": {
+        "precision": 0.5813953488372093,
+        "recall": 0.5102040816326531,
+        "f1": 0.5434782608695652,
+        "support": 686.0,
+        "tp": 350.0,
+        "fp": 252.0,
+        "fn": 336.0
+      },
+      "happy": {
+        "precision": 0.9042308953755329,
+        "recall": 0.8938239585021883,
+        "f1": 0.8989973098557104,
+        "support": 6169.0,
+        "tp": 5514.0,
+        "fp": 584.0,
+        "fn": 655.0
+      },
+      "sad": {
+        "precision": 0.5842807711319822,
+        "recall": 0.5842807711319822,
+        "f1": 0.5842807711319822,
+        "support": 2023.0,
+        "tp": 1182.0,
+        "fp": 841.0,
+        "fn": 841.0
+      },
+      "surprise": {
+        "precision": 0.6941838649155723,
+        "recall": 0.7404936624416277,
+        "f1": 0.7165913492575856,
+        "support": 1499.0,
+        "tp": 1110.0,
+        "fp": 489.0,
+        "fn": 389.0
+      },
+      "neutral": {
+        "precision": 0.7538297114356964,
+        "recall": 0.7947417840375587,
+        "f1": 0.7737453149282384,
+        "support": 5325.0,
+        "tp": 4232.0,
+        "fp": 1382.0,
+        "fn": 1093.0
+      }
+    }
+  },
+  "final_test": {
+    "loss": 0.9409447060633906,
+    "accuracy": 0.766443638013155,
+    "global_macro_precision": 0.6872618372126632,
+    "global_macro_recall": 0.6652372349296897,
+    "global_macro_f1": 0.6747761621680242,
+    "total": 17636,
+    "confusion": [
+      [
+        816,
+        35,
+        65,
+        39,
+        94,
+        63,
+        134
+      ],
+      [
+        41,
+        329,
+        5,
+        35,
+        74,
+        20,
+        186
+      ],
+      [
+        56,
+        17,
+        339,
+        22,
+        116,
+        81,
+        55
+      ],
+      [
+        26,
+        18,
+        13,
+        5508,
+        88,
+        88,
+        428
+      ],
+      [
+        72,
+        49,
+        82,
+        79,
+        1215,
+        60,
+        465
+      ],
+      [
+        58,
+        19,
+        55,
+        79,
+        45,
+        1126,
+        117
+      ],
+      [
+        78,
+        99,
+        35,
+        333,
+        435,
+        160,
+        4184
+      ]
+    ],
+    "per_class": {
+      "anger": {
+        "precision": 0.7114210985178727,
+        "recall": 0.6548956661316212,
+        "f1": 0.6819891349770164,
+        "support": 1246.0,
+        "tp": 816.0,
+        "fp": 331.0,
+        "fn": 430.0
+      },
+      "disgust": {
+        "precision": 0.5812720848056537,
+        "recall": 0.47681159420289854,
+        "f1": 0.5238853503184713,
+        "support": 690.0,
+        "tp": 329.0,
+        "fp": 237.0,
+        "fn": 361.0
+      },
+      "fear": {
+        "precision": 0.5707070707070707,
+        "recall": 0.49416909620991256,
+        "f1": 0.5296875,
+        "support": 686.0,
+        "tp": 339.0,
+        "fp": 255.0,
+        "fn": 347.0
+      },
+      "happy": {
+        "precision": 0.9036915504511895,
+        "recall": 0.892851353541903,
+        "f1": 0.898238747553816,
+        "support": 6169.0,
+        "tp": 5508.0,
+        "fp": 587.0,
+        "fn": 661.0
+      },
+      "sad": {
+        "precision": 0.5878084179970973,
+        "recall": 0.6008902077151336,
+        "f1": 0.5942773294203962,
+        "support": 2022.0,
+        "tp": 1215.0,
+        "fp": 852.0,
+        "fn": 807.0
+      },
+      "surprise": {
+        "precision": 0.704630788485607,
+        "recall": 0.7511674449633089,
+        "f1": 0.7271553115918632,
+        "support": 1499.0,
+        "tp": 1126.0,
+        "fp": 472.0,
+        "fn": 373.0
+      },
+      "neutral": {
+        "precision": 0.7513018495241516,
+        "recall": 0.7858752817430503,
+        "f1": 0.7681997613146058,
+        "support": 5324.0,
+        "tp": 4184.0,
+        "fp": 1385.0,
+        "fn": 1140.0
+      }
+    }
+  }
+}

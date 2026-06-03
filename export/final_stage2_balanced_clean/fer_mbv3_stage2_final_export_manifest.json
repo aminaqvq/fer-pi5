@@ -1,0 +1,149 @@
+{
+  "status": "finished_with_warnings",
+  "created_at": "2026-06-03T19:00:12",
+  "project_root": "D:\\fer-pi5",
+  "final_model_decision": "Use Stage2 balanced clean historical best. Stage3 final did not outperform it.",
+  "checkpoint": "D:\\fer-pi5\\checkpoints\\best_model_stage2_balanced_clean.pth",
+  "labels": [
+    "anger",
+    "disgust",
+    "fear",
+    "happy",
+    "sad",
+    "surprise",
+    "neutral"
+  ],
+  "config": {
+    "project_root": "D:\\fer-pi5",
+    "ckpt_candidates": [
+      "D:\\fer-pi5\\checkpoints\\best_model_final_selected_stage2_balanced_clean_0684451.pth",
+      "D:\\fer-pi5\\checkpoints\\best_model_stage2_balanced_clean_0684451.pth",
+      "D:\\fer-pi5\\checkpoints\\best_model_stage2_balanced_clean.pth",
+      "D:\\fer-pi5\\runs\\training\\stage2_20260602_110224_seed42\\checkpoints\\best_model.pth"
+    ],
+    "ckpt": null,
+    "model_variant": "large",
+    "num_classes": 7,
+    "img_size": 224,
+    "device": "cpu",
+    "pretrained": false,
+    "strict_checkpoint_load": true,
+    "input_name": "input",
+    "output_name": "logits",
+    "input_layout": "NCHW",
+    "opset": 18,
+    "try_dynamo_export": true,
+    "dynamic_batch": false,
+    "onnx_simplify": true,
+    "onnx_check": true,
+    "convert_tf": true,
+    "quant": "fp16",
+    "calib_limit": 500,
+    "verify_csv": "D:\\fer-pi5\\data\\csv\\test.csv",
+    "img_base": null,
+    "verify_split": "test",
+    "verify_limit": 300,
+    "verify_stride": 1,
+    "outdir": "D:\\fer-pi5\\export\\final_stage2_balanced_clean",
+    "artifact_stem": "fer_mbv3_stage2_final",
+    "overwrite": true,
+    "max_allowed_onnx_diff": 0.0001,
+    "max_allowed_tflite_diff": 0.05,
+    "fail_on_large_diff": false
+  },
+  "artifacts": {
+    "onnx_original": {
+      "exists": true,
+      "path": "D:\\fer-pi5\\export\\final_stage2_balanced_clean\\fer_mbv3_stage2_final.onnx",
+      "size_bytes": 352888,
+      "size_mb": 0.3365
+    },
+    "onnx_final": {
+      "exists": true,
+      "path": "D:\\fer-pi5\\export\\final_stage2_balanced_clean\\fer_mbv3_stage2_final_simplified.onnx",
+      "size_bytes": 16823457,
+      "size_mb": 16.0441
+    },
+    "saved_model": {
+      "exists": true,
+      "path": "D:\\fer-pi5\\export\\final_stage2_balanced_clean\\fer_mbv3_stage2_final_saved_model",
+      "size_bytes": 4096,
+      "size_mb": 0.0039
+    },
+    "tflite": {
+      "exists": true,
+      "path": "D:\\fer-pi5\\export\\final_stage2_balanced_clean\\fer_mbv3_stage2_final_fp16.tflite",
+      "size_bytes": 8452888,
+      "size_mb": 8.0613
+    },
+    "verification_report": {
+      "exists": true,
+      "path": "D:\\fer-pi5\\export\\final_stage2_balanced_clean\\fer_mbv3_stage2_final_verification_report.json",
+      "size_bytes": 257268,
+      "size_mb": 0.2453
+    },
+    "verification_records_csv": {
+      "exists": true,
+      "path": "D:\\fer-pi5\\export\\final_stage2_balanced_clean\\fer_mbv3_stage2_final_verification_records.csv",
+      "size_bytes": 55197,
+      "size_mb": 0.0526
+    }
+  },
+  "export": {
+    "path": "D:\\fer-pi5\\export\\final_stage2_balanced_clean\\fer_mbv3_stage2_final.onnx",
+    "opset": 18,
+    "input_name": "input",
+    "output_name": "logits",
+    "dynamic_batch": false,
+    "method": "torch.onnx.export(dynamo=True)",
+    "fallback_used": false
+  },
+  "onnx_simplify": {
+    "enabled": true,
+    "ok": true,
+    "input": "D:\\fer-pi5\\export\\final_stage2_balanced_clean\\fer_mbv3_stage2_final.onnx",
+    "output": "D:\\fer-pi5\\export\\final_stage2_balanced_clean\\fer_mbv3_stage2_final_simplified.onnx"
+  },
+  "tensorflow_tflite": {
+    "enabled": true,
+    "onnx_path": "D:\\fer-pi5\\export\\final_stage2_balanced_clean\\fer_mbv3_stage2_final_simplified.onnx",
+    "saved_model_dir": "D:\\fer-pi5\\export\\final_stage2_balanced_clean\\fer_mbv3_stage2_final_saved_model",
+    "ok": true,
+    "tflite": {
+      "saved_model_dir": "D:\\fer-pi5\\export\\final_stage2_balanced_clean\\fer_mbv3_stage2_final_saved_model",
+      "tflite_path": "D:\\fer-pi5\\export\\final_stage2_balanced_clean\\fer_mbv3_stage2_final_fp16.tflite",
+      "quant": "fp16",
+      "saved_model_input_name": "input",
+      "saved_model_input_layout": "NHWC",
+      "saved_model_input_shape": [
+        1,
+        224,
+        224,
+        3
+      ],
+      "ok": true
+    }
+  },
+  "verification_summary": {
+    "verify_csv": "D:\\fer-pi5\\data\\csv\\test.csv",
+    "verify_split": "test",
+    "num_samples": 300,
+    "pytorch_acc": 0.7733333333333333,
+    "onnx_acc": 0.7733333333333333,
+    "pytorch_onnx_pred_match_rate": 1.0,
+    "pytorch_onnx_max_abs_diff_max": 1.5288591384887695e-05,
+    "pytorch_onnx_max_abs_diff_avg": 3.798274944225947e-06,
+    "pytorch_onnx_mean_abs_diff_avg": 1.6651107406081186e-06,
+    "tflite_acc": 0.7733333333333333,
+    "pytorch_tflite_pred_match_rate": 1.0,
+    "onnx_tflite_pred_match_rate": 1.0,
+    "pytorch_tflite_max_abs_diff_max": 0.0695410966873169,
+    "pytorch_tflite_max_abs_diff_avg": 0.018835314894095064,
+    "pytorch_tflite_mean_abs_diff_avg": 0.008371802195324563,
+    "onnx_tflite_max_abs_diff_max": 0.06953400373458862,
+    "onnx_tflite_max_abs_diff_avg": 0.01883486006098489
+  },
+  "warnings": [
+    "TFLite max diff is high: 0.0695410966873169"
+  ]
+}
