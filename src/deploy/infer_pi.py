@@ -95,7 +95,8 @@ class Config:
     # Detection
     det_w: int = 256
     det_h: int = 192
-    detect_every: int = 3
+    # 实时显示优先：默认每帧检测，避免人移动/离开时旧 ROI 框残留。
+    detect_every: int = 1
     score_th: float = 0.70
     nms_th: float = 0.30
     top_k: int = 1000  # Pi 实时场景通常不需要 5000，降低 NMS 开销
@@ -162,8 +163,15 @@ class Config:
     color_order: str = "RGB"  # 可选："RGB" 或 "BGR"；训练时如果用 OpenCV 原图训练可尝试 BGR
 
     # Tracking
-    track_max_missing: int = 10
-    track_max_dist: float = 90.0
+    # 旧版残影的根因：tracker 会在 detect_every 间隔和 max_missing 内继续画旧框。
+    # 现在默认“显示实时优先”：每次检测时未匹配的旧 track 立即删除；检测为空时立即清空。
+    track_max_missing: int = 2
+    track_max_dist: float = 70.0
+    drop_unmatched_tracks_on_detection: bool = True
+    clear_tracks_on_empty_detection: bool = True
+    draw_fresh_tracks_only: bool = True
+    max_draw_track_age: int = 0
+    max_infer_track_age: int = 0
 
     # Saving
     save_dir: str = field(
@@ -536,9 +544,17 @@ class Track:
 
 
 class LandmarkTracker:
-    def __init__(self, max_missing: int = 10, max_dist: float = 90.0):
-        self.max_missing = max_missing
-        self.max_dist = max_dist
+    def __init__(
+        self,
+        max_missing: int = 2,
+        max_dist: float = 70.0,
+        drop_unmatched_on_update: bool = True,
+        clear_on_empty_update: bool = True,
+    ):
+        self.max_missing = max(0, int(max_missing))
+        self.max_dist = float(max_dist)
+        self.drop_unmatched_on_update = bool(drop_unmatched_on_update)
+        self.clear_on_empty_update = bool(clear_on_empty_update)
         self.next_id = 1
         self.tracks: Dict[int, Track] = {}
 
@@ -552,6 +568,28 @@ class LandmarkTracker:
         return (x1 + x2) / 2.0, (y1 + y2) / 2.0
 
     def update(self, detections: List[Dict[str, Any]], frame_idx: int) -> List[Track]:
+        """Update tracks from the latest YuNet detections.
+
+        Real-time display mode should not keep stale boxes on screen.
+        Therefore the default behavior is intentionally strict:
+        - if a detection frame returns no faces, clear all tracks immediately;
+        - if an existing track is not matched by the current detection frame, drop it;
+        - new detections create new tracks at their current boxes.
+
+        This fixes the old ROI/box ghosting where stale tracks stayed for max_missing frames.
+        """
+        detections = detections or []
+
+        if not detections and self.clear_on_empty_update:
+            if self.tracks:
+                logger.debug(
+                    "Clear all tracks on empty detection: frame=%d count=%d",
+                    frame_idx,
+                    len(self.tracks),
+                )
+            self.tracks.clear()
+            return []
+
         active_ids = list(self.tracks.keys())
         det_used = set()
         trk_used = set()
@@ -577,6 +615,12 @@ class LandmarkTracker:
             tr.last_seen_frame = frame_idx
             trk_used.add(tid)
             det_used.add(di)
+
+        if self.drop_unmatched_on_update:
+            for tid in active_ids:
+                if tid not in trk_used:
+                    logger.debug("Drop unmatched track on detection: id=%d frame=%d", tid, frame_idx)
+                    self.tracks.pop(tid, None)
 
         for di, det in enumerate(detections):
             if di in det_used:
@@ -1007,6 +1051,23 @@ def color_for_track(tr: Track, cfg: Config) -> Tuple[int, int, int]:
     return (0, 255, 255)
 
 
+def filter_tracks_for_realtime_display(tracks: List[Track], frame_idx: int, cfg: Config) -> List[Track]:
+    """Hide stale tracks before classification/drawing to avoid ROI ghosting.
+
+    When draw_fresh_tracks_only=True and max_draw_track_age=0, only tracks matched by
+    the latest detection frame are visible. This is the safest live-demo behavior.
+    """
+    if not getattr(cfg, "draw_fresh_tracks_only", True):
+        return tracks
+    max_age = max(0, int(getattr(cfg, "max_draw_track_age", 0)))
+    return [tr for tr in tracks if frame_idx - int(tr.last_seen_frame) <= max_age]
+
+
+def is_track_fresh_for_infer(tr: Track, frame_idx: int, cfg: Config) -> bool:
+    max_age = max(0, int(getattr(cfg, "max_infer_track_age", 0)))
+    return frame_idx - int(tr.last_seen_frame) <= max_age
+
+
 def draw_tracks(
     frame: np.ndarray,
     tracks: List[Track],
@@ -1146,6 +1207,13 @@ def parse_args(argv: Optional[List[str]] = None) -> argparse.Namespace:
     parser.add_argument("--max-infer-faces", dest="max_infer_faces", type=int, default=None)
     parser.add_argument("--detect-every", dest="detect_every", type=int, default=None)
     parser.add_argument("--infer-every", dest="infer_every", type=int, default=None)
+    parser.add_argument("--track-max-missing", dest="track_max_missing", type=int, default=None, help="Internal tracker stale-frame limit")
+    parser.add_argument("--track-max-dist", dest="track_max_dist", type=float, default=None, help="Max landmark/center distance for matching tracks")
+    parser.add_argument("--max-draw-track-age", dest="max_draw_track_age", type=int, default=None, help="Draw only tracks seen within N frames; 0 removes box ghosting")
+    parser.add_argument("--max-infer-track-age", dest="max_infer_track_age", type=int, default=None, help="Classify only tracks seen within N frames; 0 avoids stale ROI inference")
+    parser.add_argument("--keep-unmatched-tracks", dest="drop_unmatched_tracks_on_detection", action="store_false", default=None, help="Keep old tracks not matched by current detection frame")
+    parser.add_argument("--keep-empty-detection-tracks", dest="clear_tracks_on_empty_detection", action="store_false", default=None, help="Do not clear tracks when YuNet returns no faces")
+    parser.add_argument("--draw-stale-tracks", dest="draw_fresh_tracks_only", action="store_false", default=None, help="Draw tracker-predicted/stale boxes between detections")
     parser.add_argument("--target-fps", dest="target_fps", type=int, default=None)
     parser.add_argument("--no-mirror", dest="mirror_flip", action="store_false", default=None)
     parser.add_argument("--calibration", dest="enable_prob_calibration", action="store_true", default=None)
@@ -1175,6 +1243,13 @@ def apply_runtime_overrides(cfg: Config, args: argparse.Namespace) -> Config:
         "detect_every",
         "infer_every",
         "target_fps",
+        "track_max_missing",
+        "track_max_dist",
+        "max_draw_track_age",
+        "max_infer_track_age",
+        "drop_unmatched_tracks_on_detection",
+        "clear_tracks_on_empty_detection",
+        "draw_fresh_tracks_only",
         "enable_prob_calibration",
         "enable_saving",
         "show_raw_top3",
@@ -1251,11 +1326,27 @@ def main(argv: Optional[List[str]] = None) -> None:
     logger.info("Target FPS: %d", CFG.target_fps)
     logger.info("Saving: enabled=%s save_dir=%s save_min_conf=%.2f", CFG.enable_saving, CFG.save_dir, CFG.save_min_conf)
     logger.info("Display: show_raw_top3=%s color_logic=threshold/margin_fallback/hold_last/unknown", CFG.show_raw_top3)
+    logger.info(
+        "Tracking realtime mode: detect_every=%d max_missing=%d max_dist=%.1f drop_unmatched=%s clear_empty=%s fresh_only=%s max_draw_age=%d max_infer_age=%d",
+        CFG.detect_every,
+        CFG.track_max_missing,
+        CFG.track_max_dist,
+        CFG.drop_unmatched_tracks_on_detection,
+        CFG.clear_tracks_on_empty_detection,
+        CFG.draw_fresh_tracks_only,
+        CFG.max_draw_track_age,
+        CFG.max_infer_track_age,
+    )
 
     fer = TFLiteFER(CFG.tflite_path, num_threads=CFG.tflite_threads)
     validate_fer_runtime(fer, CFG)
     detector = FaceDetectorYuNet(CFG.yunet_path, (CFG.det_w, CFG.det_h), CFG.score_th, CFG.nms_th, CFG.top_k)
-    tracker = LandmarkTracker(CFG.track_max_missing, CFG.track_max_dist)
+    tracker = LandmarkTracker(
+        CFG.track_max_missing,
+        CFG.track_max_dist,
+        drop_unmatched_on_update=CFG.drop_unmatched_tracks_on_detection,
+        clear_on_empty_update=CFG.clear_tracks_on_empty_detection,
+    )
     saver: Optional[AsyncImageSaver] = AsyncImageSaver(CFG.save_dir) if CFG.enable_saving else None
     if not CFG.enable_saving:
         logger.info("Image saving disabled by --no-save; save_dir remains configured as: %s", CFG.save_dir)
@@ -1321,11 +1412,14 @@ def main(argv: Optional[List[str]] = None) -> None:
                 tracks = tracker.get_active(frame_idx)
 
             tracks = tracks[: max(0, CFG.max_faces)]
+            visible_tracks = filter_tracks_for_realtime_display(tracks, frame_idx, CFG)
 
-            # Classify: 对每一个检测到的 track 都尝试分类；用 max_infer_faces 控制单帧上限
+            # Classify: 只对“新鲜 track”分类，避免人移动/离开后继续拿旧 ROI 推理。
             infer_budget = max(0, CFG.max_infer_faces)
             inferred_this_frame = 0
-            for tr in tracks:
+            for tr in visible_tracks:
+                if not is_track_fresh_for_infer(tr, frame_idx, CFG):
+                    continue
                 if inferred_this_frame >= infer_budget:
                     logger.debug(
                         "Infer budget reached: frame=%d budget=%d skipped_track=%d",
@@ -1368,7 +1462,7 @@ def main(argv: Optional[List[str]] = None) -> None:
                 last_cls_ms = float(np.mean(cls_times))
 
             # Draw live view
-            draw_tracks(proc_frame, tracks, CFG, scale_x=1.0, scale_y=1.0)
+            draw_tracks(proc_frame, visible_tracks, CFG, scale_x=1.0, scale_y=1.0)
 
             fps = fpsm.tick()
             loop_ms_before_draw_status = (time.perf_counter() - loop_start) * 1000.0
@@ -1377,7 +1471,7 @@ def main(argv: Optional[List[str]] = None) -> None:
                 fps,
                 CFG,
                 latency_ms,
-                len(tracks),
+                len(visible_tracks),
                 last_det_ms,
                 last_cls_ms,
                 loop_ms_before_draw_status,
@@ -1389,13 +1483,13 @@ def main(argv: Optional[List[str]] = None) -> None:
                 raw_annotated = raw_frame.copy()
                 raw_scale_x = raw_w / float(proc_w)
                 raw_scale_y = raw_h / float(proc_h)
-                draw_tracks(raw_annotated, tracks, CFG, scale_x=raw_scale_x, scale_y=raw_scale_y)
+                draw_tracks(raw_annotated, visible_tracks, CFG, scale_x=raw_scale_x, scale_y=raw_scale_y)
                 draw_status(
                     raw_annotated,
                     fps,
                     CFG,
                     latency_ms,
-                    len(tracks),
+                    len(visible_tracks),
                     last_det_ms,
                     last_cls_ms,
                     loop_ms_before_draw_status,
@@ -1419,7 +1513,7 @@ def main(argv: Optional[List[str]] = None) -> None:
                     )
 
             loop_ms = (time.perf_counter() - loop_start) * 1000.0
-            log_frame_summary(frame_idx, fps, detections, tracks, last_det_ms, last_cls_ms, loop_ms, latency_ms, CFG)
+            log_frame_summary(frame_idx, fps, detections, visible_tracks, last_det_ms, last_cls_ms, loop_ms, latency_ms, CFG)
 
             cv2.imshow("FER Multi + YuNet 5-point", proc_frame)
 

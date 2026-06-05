@@ -1,4 +1,4 @@
-# AGENTS.md — 工作约束
+#  AGENTS.md — 工作约束
 
 本文件定义了 Reasonix 在此项目中的工作方式。每次开始任务前，请先阅读并遵守。
 
@@ -28,9 +28,9 @@
 - 如果有测试套件，运行相关测试。
 - 否则运行 `lsp_diagnostics` 检查语法/类型错误，或手动验证关键路径。
 
-## 6. 涉及论文、科研、PDF、Excel、统计、可视化、数据分析时，优先使用已安装的 scientific-agent-skills
+## 6. 涉及论文、科研、PDF、Excel、统计、可视化、数据分析、编写代码时，优先使用已安装的 scientific-agent-skills
 
-- 在 Skills 索引中查找相关 skill（如 `pdf`、`citation-management`、`scientific-writing`、`xlsx` 等），优先通过 `run_skill` 或 `slash_command` 调用。
+- 在 Skills 索引中查找相关 skill（如 `pdf`、`citation-management`、`scientific-writing`、`xlsx`、`code` 等），优先通过 `run_skill` 或 `slash_command` 调用。
 
 ## 7. 用户明确要求使用某个 skill 时，必须调用对应 skill
 
