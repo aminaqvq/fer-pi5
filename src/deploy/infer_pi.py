@@ -37,7 +37,7 @@ logger = logging.getLogger("fer_infer")
 @dataclass
 class Config:
     # Model files
-    tflite_path: str = "/home/amina/workspaces/fer-pi5/export/model_fp16.tflite"
+    tflite_path: str = "/home/amina/workspaces/fer-pi5/export/final_stage2_balanced_clean/fer_mbv3_stage2_final_fp16.tflite"
     yunet_path: str = "/home/amina/workspaces/fer-pi5/src/deploy/face_detection_yunet_2023mar.onnx"
 
     # Camera
