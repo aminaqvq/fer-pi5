@@ -7,7 +7,7 @@ import threading
 import logging
 import logging.handlers
 import uuid
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -29,7 +29,7 @@ except ImportError:
 LABELS = ["anger", "disgust", "fear", "happy", "sad", "surprise", "neutral"]
 IMAGENET_MEAN = np.array([0.485, 0.456, 0.406], dtype=np.float32)
 IMAGENET_STD = np.array([0.229, 0.224, 0.225], dtype=np.float32)
-JPEG_PARAMS = [cv2.IMWRITE_JPEG_QUALITY, 100]
+JPEG_PARAMS = [cv2.IMWRITE_JPEG_QUALITY, 95]
 
 logger = logging.getLogger("fer_infer")
 
@@ -37,7 +37,7 @@ logger = logging.getLogger("fer_infer")
 @dataclass
 class Config:
     # Model files
-    tflite_path: str = "/home/amina/workspaces/fer-pi5/export/model_fp16.tflite"
+    tflite_path: str = "/home/amina/workspaces/fer-pi5/export/final_stage2_balanced_clean/fer_mbv3_stage2_final_fp16.tflite"
     yunet_path: str = "/home/amina/workspaces/fer-pi5/src/deploy/face_detection_yunet_2023mar.onnx"
 
     # Camera
@@ -58,7 +58,7 @@ class Config:
     detect_every: int = 3
     score_th: float = 0.70
     nms_th: float = 0.30
-    top_k: int = 5000
+    top_k: int = 1000  # Pi 实时场景通常不需要 5000，降低 NMS 开销
 
     # Classification
     img_size: int = 224
@@ -66,8 +66,53 @@ class Config:
     max_faces: int = 4
     max_infer_faces: int = 4  # 原代码默认 1 容易造成“只画框不分类”的错觉，这里默认最多 4 张脸都分类
     tflite_threads: int = 4
-    conf_th: float = 0.45
+    conf_th: float = 0.38  # 全局默认阈值降低一点，减少非弱项被判 Unknown
     pad_ratio: float = 0.18
+
+    # 推理显示层校准：
+    # 基于 stage2 final_test 的 per-class F1/recall，三个弱项是 disgust、fear、sad。
+    # 这是后处理，不改变模型本身；只影响实时 demo 的显示/保存判断。
+    # bias 是 logit 偏置：0.22 约等于该类概率乘以 exp(0.22)=1.25 后再归一化。
+    # 想关掉就改成 False；想换弱项就改下面两个字典里的类别名。
+    enable_prob_calibration: bool = True
+    class_logit_bias: Dict[str, float] = field(
+        default_factory=lambda: {
+            # fear 仍然偏差时，不建议只继续猛加 disgust；否则 fear/neutral/sad 很容易被吸成 disgust。
+            # 这版把 fear 提高、disgust 稍微收一点，让 fear 更有机会成为 top1。
+            "disgust": 0.42,
+            "fear": 0.50,
+            "sad": 0.10,
+            "anger": 0.38,
+        }
+    )
+    # 每类阈值。这里把所有类都列出来，Unknown 会明显减少；保存仍由 save_min_conf 控制。
+    class_conf_th: Dict[str, float] = field(
+        default_factory=lambda: {
+            "anger": 0.28,
+            "disgust": 0.26,
+            "fear": 0.28,
+            "happy": 0.44,
+            "sad": 0.42,
+            "surprise": 0.40,
+            "neutral": 0.40,
+        }
+    )
+    weak_labels: Tuple[str, ...] = ("disgust", "fear", "sad")
+
+    # Unknown 降噪：top1 未过阈值时，如果与 top2 有足够间隔，也允许显示 top1。
+    # 这样比把所有阈值粗暴降到 0.20 更稳。
+    enable_unknown_margin_fallback: bool = True
+    unknown_fallback_conf: float = 0.32
+    unknown_fallback_margin: float = 0.07
+    weak_unknown_fallback_conf: float = 0.25
+    weak_unknown_fallback_margin: float = 0.035
+
+    # UI 稳定：如果当前帧掉到 Unknown，短时间保留上一帧有效表情，减少闪烁。
+    # 注意：hold_last 只是显示层，不会触发保存。
+    hold_last_label_on_unknown: bool = True
+    hold_last_label_frames: int = 6
+    hold_last_label_min_conf: float = 0.34
+    hold_last_label_conf_decay: float = 0.95
 
     # 重要：这里必须和训练阶段一致。
     # 可选："imagenet", "zero_one", "minus_one_one", "none"
@@ -94,8 +139,9 @@ class Config:
 
     # Logging
     log_dir: str = "logs"
-    log_level: int = logging.DEBUG
-    log_every_n_frames: int = 1  # 每帧都记；如树莓派 IO 压力大可改为 5 或 10
+    log_level: int = logging.INFO  # Pi 上 DEBUG 每帧写日志会拖慢实时性能
+    log_every_n_frames: int = 10
+    opencv_threads: int = 2  # 避免 OpenCV 与 TFLite 过度抢 CPU，可在 1/2/4 间实测
 
 
 CFG = Config()
@@ -431,11 +477,13 @@ class Track:
     last_seen_frame: int
     label: str = "Unknown"
     cls_conf: float = 0.0
-    probs: Optional[np.ndarray] = None
+    probs: Optional[np.ndarray] = None  # 校准后的概率，用于显示和最终判断
+    raw_probs: Optional[np.ndarray] = None  # 模型原始概率，方便日志排查
     roi_box: Optional[List[int]] = None
     last_cls_frame: int = -999999
     sharpness: float = 0.0
     last_saved_frame: int = -999999
+    label_decision: str = "init"  # threshold / margin_fallback / hold_last / unknown
 
 
 class LandmarkTracker:
@@ -678,6 +726,8 @@ def should_save_result(
     best_records: Dict[str, Dict[str, float]],
     frame_idx: int,
 ) -> bool:
+    if getattr(tr, "label_decision", "") == "hold_last":
+        return False
     if tr.label == "Unknown" and not cfg.save_unknown:
         return False
     if tr.label not in LABELS and tr.label != "Unknown":
@@ -710,6 +760,102 @@ def topk_to_string(probs: np.ndarray, k: int = 3) -> str:
     return ", ".join(f"{LABELS[int(i)]}:{float(probs[int(i)]):.4f}" for i in idx if int(i) < len(LABELS))
 
 
+def calibrate_probs(probs: np.ndarray, cfg: Config = CFG) -> np.ndarray:
+    """对推理概率做轻量校准，让弱项更容易被显示出来。
+
+    做法：把概率转到 log 空间，对指定类别加一个很小的 bias，再 softmax 归一化。
+    这比直接给概率 +0.05 更稳，不会出现概率和不等于 1 的情况。
+    """
+    p = np.asarray(probs, dtype=np.float32).reshape(-1).copy()
+    if p.size == 0:
+        return p
+
+    # 只校准已知的 7 个 FER 类，避免误动模型可能输出的额外字段。
+    n = min(len(LABELS), p.size)
+    eps = 1e-8
+
+    if not getattr(cfg, "enable_prob_calibration", False):
+        denom = max(float(np.sum(p[:n])), eps)
+        p[:n] = p[:n] / denom
+        return p
+
+    scores = np.log(np.clip(p[:n], eps, 1.0))
+    applied = False
+
+    for label, bias in getattr(cfg, "class_logit_bias", {}).items():
+        if label not in LABELS:
+            logger.warning("Unknown calibration label ignored: %s", label)
+            continue
+        idx = LABELS.index(label)
+        if idx >= n:
+            continue
+        b = float(bias)
+        if abs(b) < 1e-12:
+            continue
+        scores[idx] += b
+        applied = True
+
+    if not applied:
+        denom = max(float(np.sum(p[:n])), eps)
+        p[:n] = p[:n] / denom
+        return p
+
+    scores = scores - np.max(scores)
+    adj = np.exp(scores).astype(np.float32)
+    adj = adj / max(float(np.sum(adj)), eps)
+    p[:n] = adj
+    return p
+
+
+def conf_threshold_for(label: str, cfg: Config = CFG) -> float:
+    return float(getattr(cfg, "class_conf_th", {}).get(label, cfg.conf_th))
+
+
+def decide_label(
+    probs: np.ndarray,
+    candidate_label: str,
+    conf: float,
+    need_conf: float,
+    tr: Track,
+    cfg: Config,
+    frame_idx: int,
+) -> Tuple[str, float, str, float]:
+    """决定最终显示标签。
+
+    先按每类阈值判断；不过阈值时，如果 top1 和 top2 拉开了差距，
+    允许低置信度显示 top1；最后才用短时 hold_last 减少 Unknown 闪烁。
+    """
+    n = min(len(LABELS), probs.size)
+    if n <= 0:
+        return "Unknown", 0.0, "unknown", 0.0
+
+    top_idx = np.argsort(-probs[:n])
+    second_conf = float(probs[int(top_idx[1])]) if n > 1 else 0.0
+    margin = float(conf - second_conf)
+
+    if conf >= need_conf:
+        return candidate_label, conf, "threshold", margin
+
+    if getattr(cfg, "enable_unknown_margin_fallback", False):
+        weak = candidate_label in getattr(cfg, "weak_labels", ())
+        min_conf = float(cfg.weak_unknown_fallback_conf if weak else cfg.unknown_fallback_conf)
+        min_margin = float(cfg.weak_unknown_fallback_margin if weak else cfg.unknown_fallback_margin)
+        if conf >= min_conf and margin >= min_margin:
+            return candidate_label, conf, "margin_fallback", margin
+
+    if getattr(cfg, "hold_last_label_on_unknown", False):
+        prev_label = getattr(tr, "label", "Unknown")
+        prev_conf = float(getattr(tr, "cls_conf", 0.0))
+        prev_frame = int(getattr(tr, "last_cls_frame", -999999))
+        recent = (frame_idx - prev_frame) <= int(getattr(cfg, "hold_last_label_frames", 0))
+        valid_prev = prev_label not in ("", "Unknown", "Error")
+        if valid_prev and recent and prev_conf >= float(getattr(cfg, "hold_last_label_min_conf", 1.0)):
+            shown_conf = max(conf, prev_conf * float(getattr(cfg, "hold_last_label_conf_decay", 0.95)))
+            return prev_label, shown_conf, "hold_last", margin
+
+    return "Unknown", conf, "unknown", margin
+
+
 def classify_track(
     tr: Track,
     raw_frame: np.ndarray,
@@ -733,11 +879,13 @@ def classify_track(
         logger.warning("Empty ROI: frame=%d track=%d box=%s roi_box=%s", frame_idx, tr.track_id, tr.box, tr.roi_box)
         tr.label = "Unknown"
         tr.cls_conf = 0.0
+        tr.label_decision = "empty_roi"
         return False, 0.0, None
 
     t0 = time.perf_counter()
     x = preprocess_roi(roi, fer.in_det["shape"], cfg)
-    probs = fer.infer(x)
+    raw_probs = fer.infer(x)
+    probs = calibrate_probs(raw_probs, cfg)
     infer_ms = (time.perf_counter() - t0) * 1000.0
 
     if probs.size < len(LABELS):
@@ -745,33 +893,44 @@ def classify_track(
 
     cls_id = int(np.argmax(probs[: len(LABELS)]))
     conf = float(probs[cls_id])
-    label = LABELS[cls_id] if conf >= cfg.conf_th else "Unknown"
+    candidate_label = LABELS[cls_id]
+    need_conf = conf_threshold_for(candidate_label, cfg)
+    label, shown_conf, decision, margin = decide_label(probs, candidate_label, conf, need_conf, tr, cfg, frame_idx)
 
+    tr.raw_probs = raw_probs
     tr.probs = probs
     tr.label = label
-    tr.cls_conf = conf
+    tr.cls_conf = shown_conf
+    tr.label_decision = decision
     tr.last_cls_frame = frame_idx
     tr.sharpness = measure_sharpness(roi)
 
-    logger.debug(
-        "Classify: frame=%d track=%d det_box=%s roi_box=%s raw_frame=%s crop=%s tensor_shape=%s "
-        "preprocess=%s color=%s top1=%s:%.4f final=%s top3=[%s] sharpness=%.2f infer_ms=%.2f",
-        frame_idx,
-        tr.track_id,
-        str(tr.box),
-        str(tr.roi_box),
-        str(raw_frame.shape),
-        str(roi.shape),
-        str(x.shape),
-        cfg.preprocess_mode,
-        cfg.color_order,
-        LABELS[cls_id],
-        conf,
-        tr.label,
-        topk_to_string(probs, 3),
-        tr.sharpness,
-        infer_ms,
-    )
+    if logger.isEnabledFor(logging.DEBUG):
+        logger.debug(
+            "Classify: frame=%d track=%d det_box=%s roi_box=%s raw_frame=%s crop=%s tensor_shape=%s "
+            "preprocess=%s color=%s calibrated=%s raw_top3=[%s] top1=%s:%.4f th=%.2f margin=%.4f decision=%s final=%s shown_conf=%.4f top3=[%s] sharpness=%.2f infer_ms=%.2f",
+            frame_idx,
+            tr.track_id,
+            str(tr.box),
+            str(tr.roi_box),
+            str(raw_frame.shape),
+            str(roi.shape),
+            str(x.shape),
+            cfg.preprocess_mode,
+            cfg.color_order,
+            cfg.enable_prob_calibration,
+            topk_to_string(raw_probs, 3),
+            LABELS[cls_id],
+            conf,
+            need_conf,
+            margin,
+            decision,
+            tr.label,
+            shown_conf,
+            topk_to_string(probs, 3),
+            tr.sharpness,
+            infer_ms,
+        )
     return True, infer_ms, roi
 
 
@@ -785,7 +944,7 @@ def draw_tracks(
     H, W = frame.shape[:2]
     for tr in tracks:
         x1, y1, x2, y2 = scale_box(tr.box, scale_x, scale_y, W, H)
-        ok_cls = tr.label not in ("", "Unknown", "Error") and tr.cls_conf >= cfg.conf_th
+        ok_cls = tr.label not in ("", "Unknown", "Error") and tr.cls_conf >= conf_threshold_for(tr.label, cfg)
         color = (0, 255, 0) if ok_cls else (0, 0, 255)
         cv2.rectangle(frame, (x1, y1), (x2, y2), color, 2)
 
@@ -793,7 +952,8 @@ def draw_tracks(
             draw_landmarks(frame, scale_landmarks(tr.landmarks, scale_x, scale_y))
 
         label = tr.label or "Unknown"
-        text = f"ID{tr.track_id} {label} {tr.cls_conf:.2f}"
+        suffix = "~" if getattr(tr, "label_decision", "") == "hold_last" else ""
+        text = f"ID{tr.track_id} {label}{suffix} {tr.cls_conf:.2f}"
         cv2.putText(frame, text, (x1, max(22, y1 - 8)), cv2.FONT_HERSHEY_SIMPLEX, 0.62, color, 2)
 
         if tr.probs is not None:
@@ -855,7 +1015,11 @@ def log_frame_summary(
     latency_ms: float,
     cfg: Config,
 ) -> None:
-    if cfg.log_every_n_frames <= 0 or frame_idx % cfg.log_every_n_frames != 0:
+    if (
+        cfg.log_every_n_frames <= 0
+        or frame_idx % cfg.log_every_n_frames != 0
+        or not logger.isEnabledFor(logging.DEBUG)
+    ):
         return
     det_count = len(detections) if detections is not None else -1
     track_msg = []
@@ -869,6 +1033,7 @@ def log_frame_summary(
                 "label": tr.label,
                 "cls_conf": round(float(tr.cls_conf), 4),
                 "sharpness": round(float(tr.sharpness), 2),
+                "decision": getattr(tr, "label_decision", ""),
             }
         )
     logger.debug(
@@ -887,12 +1052,24 @@ def log_frame_summary(
 def main() -> None:
     global logger
     logger = setup_logger(log_dir=CFG.log_dir, level=CFG.log_level)
+    try:
+        cv2.setNumThreads(int(getattr(CFG, "opencv_threads", 0)))
+        logger.info("OpenCV threads: %s", cv2.getNumThreads())
+    except Exception:
+        logger.exception("Failed to set OpenCV threads")
     logger.info("Platform: %s, TFLite backend: %s", sys.platform, TFLITE_BACKEND)
     logger.info("TFLite: %s", CFG.tflite_path)
     logger.info("YuNet : %s", CFG.yunet_path)
     logger.info("Camera source: %s", CFG.camera_source)
     logger.info("Labels order: %s", LABELS)
     logger.info("Preprocess: mode=%s color_order=%s img_size=%d", CFG.preprocess_mode, CFG.color_order, CFG.img_size)
+    logger.info(
+        "Calibration: enabled=%s class_logit_bias=%s class_conf_th=%s unknown_fallback=%s",
+        CFG.enable_prob_calibration,
+        CFG.class_logit_bias,
+        CFG.class_conf_th,
+        CFG.enable_unknown_margin_fallback,
+    )
     logger.info("Target FPS: %d", CFG.target_fps)
 
     fer = TFLiteFER(CFG.tflite_path, num_threads=CFG.tflite_threads)
