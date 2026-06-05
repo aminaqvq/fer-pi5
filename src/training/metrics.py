@@ -165,8 +165,15 @@ def evaluate_model(
         xb = xb.to(device, non_blocking=True)
         yb = yb.to(device, non_blocking=True)
         logits = model(xb)
+        # RepVGGplus (and similar models) may return a dict in training mode.
+        # eval() mode should return a plain tensor, but be defensive.
+        if isinstance(logits, dict):
+            logits = logits.get("main", next(iter(logits.values())))
         if tta_horizontal_flip:
-            logits = 0.5 * (logits + model(torch.flip(xb, dims=[-1])))
+            logits_flip = model(torch.flip(xb, dims=[-1]))
+            if isinstance(logits_flip, dict):
+                logits_flip = logits_flip.get("main", next(iter(logits_flip.values())))
+            logits = 0.5 * (logits + logits_flip)
         loss = criterion(logits, yb)
         accumulator.update(logits, yb, loss=loss)
     return accumulator.compute()

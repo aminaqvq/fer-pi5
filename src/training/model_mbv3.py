@@ -12,7 +12,7 @@ import torch.nn as nn
 from torchvision import models
 from torchvision.models import MobileNet_V3_Large_Weights, MobileNet_V3_Small_Weights
 
-SUPPORTED_VARIANTS: Tuple[str, ...] = ("small", "large")
+SUPPORTED_VARIANTS: Tuple[str, ...] = ("small", "large", "repvggplus-l2pse", "efficientnet_b0")
 
 
 def _classifier_in_features(model: nn.Module) -> int:
@@ -39,15 +39,94 @@ def get_model(
     compile_model: bool = False,
     *,
     strict_compile: bool = False,
+    use_checkpoint: bool = False,
 ) -> nn.Module:
-    """Build the canonical FER MobileNetV3 classifier.
+    """Build the canonical FER classifier.
 
-    Unlike the old version, unknown variants fail fast instead of silently
-    falling back to ``large``.
+    Supported variants: small, large (MobileNetV3) and repvggplus-l2pse
+    (RepVGGplus-L2pse).
+
+    ``use_checkpoint`` is only meaningful for RepVGGplus (enables gradient
+    checkpointing in stages).  It is ignored for MobileNetV3 variants.
     """
     normalized = str(variant).lower().strip()
+
+    # ── RepVGGplus-L2pse branch ──────────────────────────────────────
+    if normalized in {"repvggplus-l2pse", "repvggplus_l2pse", "repvggplus-l2-pse"}:
+        try:
+            from .model_repvggplus import create_RepVGGplus_L2pse
+        except ImportError:
+            from model_repvggplus import create_RepVGGplus_L2pse  # type: ignore[assignment]
+
+        if pretrained:
+            warnings.warn(
+                "pretrained=True is ignored for RepVGGplus unless an ImageNet "
+                "RepVGGplus checkpoint loader is provided. "
+                "Using randomly initialised RepVGGplus."
+            )
+
+        model = create_RepVGGplus_L2pse(
+            num_classes=int(num_classes),
+            deploy=False,
+            use_checkpoint=bool(use_checkpoint),
+            use_aux=True,
+        )
+        model.to(torch.device(device))
+
+        if compile_model:
+            if hasattr(torch, "compile"):
+                try:
+                    model = torch.compile(model)  # type: ignore[assignment]
+                except Exception as exc:
+                    if strict_compile:
+                        raise
+                    warnings.warn(f"torch.compile failed; continuing without compilation: {exc}")
+            elif strict_compile:
+                raise RuntimeError("compile_model=True but torch.compile is unavailable")
+
+        if verbose:
+            print(
+                f"RepVGGplus-L2pse initialized "
+                f"(pretrained={pretrained}, num_classes={num_classes}, device={device})",
+                flush=True,
+            )
+        return model
+
+    # ── EfficientNet-B0 branch ──────────────────────────────────────
+    if normalized in {"efficientnet_b0", "efficientnet-b0", "effnet_b0", "effnet-b0"}:
+        try:
+            from .model_efficientnet import create_efficientnet_b0
+        except ImportError:
+            from model_efficientnet import create_efficientnet_b0  # type: ignore[assignment]
+
+        model = create_efficientnet_b0(
+            num_classes=int(num_classes),
+            pretrained=bool(pretrained),
+        )
+        model.to(torch.device(device))
+
+        if compile_model:
+            if hasattr(torch, "compile"):
+                try:
+                    model = torch.compile(model)  # type: ignore[assignment]
+                except Exception as exc:
+                    if strict_compile:
+                        raise
+                    warnings.warn(f"torch.compile failed; continuing without compilation: {exc}")
+            elif strict_compile:
+                raise RuntimeError("compile_model=True but torch.compile is unavailable")
+
+        if verbose:
+            n = sum(p.numel() for p in model.parameters())
+            print(
+                f"EfficientNet-B0 initialized "
+                f"(pretrained={pretrained}, num_classes={num_classes}, params={n:,}, device={device})",
+                flush=True,
+            )
+        return model
+
     if normalized not in SUPPORTED_VARIANTS:
-        raise ValueError(f"Unsupported MobileNetV3 variant: {variant!r}. Expected one of {SUPPORTED_VARIANTS}.")
+        raise ValueError(f"Unsupported model variant: {variant!r}. Expected one of {SUPPORTED_VARIANTS}.")
 
     if normalized == "small":
         weights = MobileNet_V3_Small_Weights.DEFAULT if pretrained else None

@@ -1,0 +1,398 @@
+{
+  "run_id": "stage3_20260605_085032_seed42",
+  "status": "finished",
+  "created_or_updated_at": "2026-06-05T16:24:21",
+  "python": "3.10.19 | packaged by Anaconda, Inc. | (main, Oct 21 2025, 16:41:31) [MSC v.1929 64 bit (AMD64)]",
+  "platform": "Windows-10-10.0.26200-SP0",
+  "torch_version": "2.11.0+cu126",
+  "cuda_available": true,
+  "cuda_device_count": 1,
+  "labels": [
+    "anger",
+    "disgust",
+    "fear",
+    "happy",
+    "sad",
+    "surprise",
+    "neutral"
+  ],
+  "config": {
+    "project_root": "D:\\fer-pi5",
+    "train_csv": "D:\\fer-pi5\\data\\csv\\train.csv",
+    "val_csv": "D:\\fer-pi5\\data\\csv\\val.csv",
+    "test_csv": "D:\\fer-pi5\\data\\csv\\test.csv",
+    "img_base": null,
+    "runs_dir": "D:\\fer-pi5\\runs\\training",
+    "checkpoint_alias_dir": "D:\\fer-pi5\\checkpoints",
+    "model_variant": "efficientnet_b0",
+    "num_classes": 7,
+    "pretrained": false,
+    "compile_model": false,
+    "strict_checkpoint_load": true,
+    "device": "cuda",
+    "epochs": 120,
+    "batch_size": 126,
+    "num_workers": 4,
+    "pin_memory": true,
+    "persistent_workers": true,
+    "prefetch_factor": 2,
+    "drop_last_train": true,
+    "lr": 5e-05,
+    "lr_floor": 1e-06,
+    "warmup_epochs": 2,
+    "weight_decay": 0.0001,
+    "label_smoothing": 0.05,
+    "class_balance_beta": 0.995,
+    "use_class_weights": false,
+    "class_weights_from": "labeled_train",
+    "use_amp": true,
+    "grad_clip": true,
+    "max_norm": 1.0,
+    "dynamic_sampling": false,
+    "per_class_limit": 0,
+    "pseudo_csv": "D:\\fer-pi5\\data\\csv\\pseudo_labeled_stage2_final.csv",
+    "pseudo_conf_min": 0.0,
+    "pseudo_conf_power": 2.0,
+    "pseudo_loss_scale": 0.2,
+    "pseudo_rampup_epochs": 20,
+    "require_pseudo_conf": true,
+    "val_interval": 1,
+    "early_stop_patience": 20,
+    "best_metric": "global_macro_f1",
+    "evaluate_test_at_end": true,
+    "save_last_every_epoch": true,
+    "write_checkpoint_alias": true,
+    "alias_overwrite": true,
+    "seed": 42,
+    "deterministic_algorithms": false,
+    "cudnn_benchmark": false,
+    "run_name": null,
+    "notes": "Final Stage3 closure run. Init from historical-best Stage2 balanced clean, use final Stage2 pseudo labels, conservative pseudo loss, strict balanced batch. If this does not beat Stage2 historical best, final deliverable remains Stage2.",
+    "stage": "stage3",
+    "init_ckpt": "D:\\fer-pi5\\checkpoints\\best_model_stage2_efficientnet_b0_balanced_clean.pth",
+    "best_alias_name": "best_model_stage3_efficientnet_b0_final.pth",
+    "log_alias_name": "train_stage3_efficientnet_b0_final_log.csv",
+    "aux_loss_weight": 0.0,
+    "use_checkpoint": false,
+    "grad_accum_steps": 1,
+    "sampling_strategy": "balanced_batch",
+    "balanced_per_class": "auto_min",
+    "balanced_per_class_source": "labeled_train",
+    "balanced_samples_per_class_per_batch": 18,
+    "balanced_strict_batch_size": true,
+    "balanced_replacement": false
+  },
+  "dataset_meta": {
+    "train_labeled_count": 141105,
+    "train_full_labeled_count": 141105,
+    "val_count": 17639,
+    "test_count": 17636,
+    "pseudo_count": 10657,
+    "label_counts": [
+      9971,
+      5525,
+      5486,
+      49352,
+      16181,
+      11993,
+      42597
+    ],
+    "pseudo_count_total_csv": 10657,
+    "pseudo_filtered_out": 0,
+    "pseudo_weight_min": 0.1549667026907677,
+    "pseudo_weight_mean": 0.18756918831817596,
+    "pseudo_weight_max": 0.1995970631523245
+  },
+  "file_sha256": {
+    "D:\\fer-pi5\\data\\csv\\train.csv": "577682b7c50bb7d868cfd5d64ec324d39873c30f8845c01f900617f620b33265",
+    "D:\\fer-pi5\\data\\csv\\val.csv": "c01aed34cb6f2b68c93d5cbe48d9d3babd813fca7c819b65baf635fb112c0908",
+    "D:\\fer-pi5\\data\\csv\\test.csv": "b9b8d02c12b56517189c4c46709fb770c38373cecbd3c4451a2ca2b534d6f2ad",
+    "D:\\fer-pi5\\data\\csv\\pseudo_labeled_stage2_final.csv": "cc177ab4a2bdbf24cd93b1872f784eeb28af98f17055983046c5d057c80bb391",
+    "D:\\fer-pi5\\checkpoints\\best_model_stage2_efficientnet_b0_balanced_clean.pth": "54f21d35a74d18e14f4ad1f0e55cc2dc6941ad54379dec0157489245c8b076c1",
+    "D:\\fer-pi5\\src\\training\\train_core.py": "13523463063eaca0466e1a139f09fca41a2845b917c68a6add4fe333b4c90303",
+    "D:\\fer-pi5\\src\\training\\dataset.py": "35d8808c954796b30f084f567903b583e08efe5f33a6f5873625fa39efac325d",
+    "D:\\fer-pi5\\src\\training\\metrics.py": "a004240bb69922d37cad813bcfbe68d0f281a072ff7f8d9ba55722e70e5484c9",
+    "D:\\fer-pi5\\src\\training\\model_mbv3.py": "9841d95d8e70b8202b6fd1c6a91f543e800d3aa6798b1cd860c7cbecb0ac9dab"
+  },
+  "best_epoch": 50,
+  "best_metric": 0.6849860586071399,
+  "best_checkpoint": "D:\\fer-pi5\\runs\\training\\stage3_20260605_085032_seed42\\checkpoints\\best_model.pth",
+  "final_val": {
+    "loss": 0.7706204091274614,
+    "accuracy": 0.7751573218436419,
+    "global_macro_precision": 0.683465656278789,
+    "global_macro_recall": 0.6867295248755176,
+    "global_macro_f1": 0.6849860586071399,
+    "total": 17639,
+    "confusion": [
+      [
+        837,
+        60,
+        64,
+        39,
+        86,
+        61,
+        99
+      ],
+      [
+        49,
+        387,
+        6,
+        21,
+        50,
+        18,
+        160
+      ],
+      [
+        56,
+        8,
+        375,
+        21,
+        90,
+        88,
+        48
+      ],
+      [
+        42,
+        22,
+        27,
+        5533,
+        77,
+        99,
+        369
+      ],
+      [
+        79,
+        60,
+        100,
+        72,
+        1224,
+        57,
+        431
+      ],
+      [
+        62,
+        28,
+        79,
+        58,
+        46,
+        1102,
+        124
+      ],
+      [
+        101,
+        145,
+        44,
+        277,
+        406,
+        137,
+        4215
+      ]
+    ],
+    "per_class": {
+      "anger": {
+        "precision": 0.6827079934747146,
+        "recall": 0.6717495987158909,
+        "f1": 0.6771844660194175,
+        "support": 1246.0,
+        "tp": 837.0,
+        "fp": 389.0,
+        "fn": 409.0
+      },
+      "disgust": {
+        "precision": 0.5450704225352113,
+        "recall": 0.5600578871201157,
+        "f1": 0.5524625267665954,
+        "support": 691.0,
+        "tp": 387.0,
+        "fp": 323.0,
+        "fn": 304.0
+      },
+      "fear": {
+        "precision": 0.539568345323741,
+        "recall": 0.5466472303206997,
+        "f1": 0.5430847212165099,
+        "support": 686.0,
+        "tp": 375.0,
+        "fp": 320.0,
+        "fn": 311.0
+      },
+      "happy": {
+        "precision": 0.9189503404750041,
+        "recall": 0.8969038742097585,
+        "f1": 0.9077932731747334,
+        "support": 6169.0,
+        "tp": 5533.0,
+        "fp": 488.0,
+        "fn": 636.0
+      },
+      "sad": {
+        "precision": 0.6184941889843355,
+        "recall": 0.6050420168067226,
+        "f1": 0.6116941529235381,
+        "support": 2023.0,
+        "tp": 1224.0,
+        "fp": 755.0,
+        "fn": 799.0
+      },
+      "surprise": {
+        "precision": 0.70550576184379,
+        "recall": 0.7351567711807871,
+        "f1": 0.7200261352499183,
+        "support": 1499.0,
+        "tp": 1102.0,
+        "fp": 460.0,
+        "fn": 397.0
+      },
+      "neutral": {
+        "precision": 0.7739625413147264,
+        "recall": 0.7915492957746478,
+        "f1": 0.7826571348992667,
+        "support": 5325.0,
+        "tp": 4215.0,
+        "fp": 1231.0,
+        "fn": 1110.0
+      }
+    }
+  },
+  "final_test": {
+    "loss": 0.7783891425689188,
+    "accuracy": 0.7721138580176911,
+    "global_macro_precision": 0.6817620696984223,
+    "global_macro_recall": 0.6802441627476393,
+    "global_macro_f1": 0.6807750692304214,
+    "total": 17636,
+    "confusion": [
+      [
+        824,
+        54,
+        75,
+        26,
+        94,
+        60,
+        113
+      ],
+      [
+        41,
+        364,
+        6,
+        29,
+        62,
+        26,
+        162
+      ],
+      [
+        59,
+        17,
+        358,
+        23,
+        106,
+        70,
+        53
+      ],
+      [
+        29,
+        25,
+        23,
+        5503,
+        86,
+        83,
+        420
+      ],
+      [
+        73,
+        66,
+        95,
+        57,
+        1240,
+        49,
+        442
+      ],
+      [
+        57,
+        23,
+        69,
+        58,
+        37,
+        1137,
+        118
+      ],
+      [
+        97,
+        160,
+        31,
+        281,
+        431,
+        133,
+        4191
+      ]
+    ],
+    "per_class": {
+      "anger": {
+        "precision": 0.6983050847457627,
+        "recall": 0.6613162118780096,
+        "f1": 0.6793075020610057,
+        "support": 1246.0,
+        "tp": 824.0,
+        "fp": 356.0,
+        "fn": 422.0
+      },
+      "disgust": {
+        "precision": 0.5133991537376587,
+        "recall": 0.527536231884058,
+        "f1": 0.520371694067191,
+        "support": 690.0,
+        "tp": 364.0,
+        "fp": 345.0,
+        "fn": 326.0
+      },
+      "fear": {
+        "precision": 0.5449010654490106,
+        "recall": 0.521865889212828,
+        "f1": 0.5331347728965004,
+        "support": 686.0,
+        "tp": 358.0,
+        "fp": 299.0,
+        "fn": 328.0
+      },
+      "happy": {
+        "precision": 0.9206960013384641,
+        "recall": 0.892040849408332,
+        "f1": 0.9061419397332455,
+        "support": 6169.0,
+        "tp": 5503.0,
+        "fp": 474.0,
+        "fn": 666.0
+      },
+      "sad": {
+        "precision": 0.603112840466926,
+        "recall": 0.6132542037586548,
+        "f1": 0.6081412457086807,
+        "support": 2022.0,
+        "tp": 1240.0,
+        "fp": 816.0,
+        "fn": 782.0
+      },
+      "surprise": {
+        "precision": 0.7297817715019256,
+        "recall": 0.7585056704469646,
+        "f1": 0.7438665358194309,
+        "support": 1499.0,
+        "tp": 1137.0,
+        "fp": 421.0,
+        "fn": 362.0
+      },
+      "neutral": {
+        "precision": 0.762138570649209,
+        "recall": 0.7871900826446281,
+        "f1": 0.7744617943268964,
+        "support": 5324.0,
+        "tp": 4191.0,
+        "fp": 1308.0,
+        "fn": 1133.0
+      }
+    }
+  },
+  "best_alias": "D:\\fer-pi5\\checkpoints\\best_model_stage3_efficientnet_b0_final.pth",
+  "log_alias": "D:\\fer-pi5\\checkpoints\\train_stage3_efficientnet_b0_final_log.csv"
+}

@@ -1,14 +1,64 @@
 {
-  "created_at": "2026-06-03T15:55:10",
+  "created_at": "2026-06-05T16:59:12",
   "host": "AMINA",
   "python": "3.10.19 | packaged by Anaconda, Inc. | (main, Oct 21 2025, 16:41:31) [MSC v.1929 64 bit (AMD64)]",
   "project_root": "D:\\fer-pi5",
   "runs_roots": [
     "D:\\fer-pi5\\runs\\training"
   ],
-  "run_count": 12,
+  "run_count": 15,
   "output_csv": "D:\\fer-pi5\\checkpoints\\checkpoint_registry.csv",
   "rows": [
+    {
+      "run_id": "stage1_20260604_155955_seed42",
+      "status": "finished",
+      "run_dir": "D:\\fer-pi5\\runs\\training\\stage1_20260604_155955_seed42",
+      "run_dir_rel": "runs\\training\\stage1_20260604_155955_seed42",
+      "best_epoch": 10,
+      "best_metric": 0.6899018611887608,
+      "val_macro_f1": 0.6899018611887608,
+      "test_macro_f1": 0.6968455570753344,
+      "val_accuracy": 0.7836612052837463,
+      "test_accuracy": 0.7850419596280336,
+      "val_loss": 0.6435962052388259,
+      "test_loss": 0.6328386472693158,
+      "csv_epoch_count": 30,
+      "csv_last_epoch": 30,
+      "checkpoint_path": "D:\\fer-pi5\\runs\\training\\stage1_20260604_155955_seed42\\checkpoints\\best_model.pth",
+      "checkpoint_path_rel": "runs\\training\\stage1_20260604_155955_seed42\\checkpoints\\best_model.pth",
+      "checkpoint_exists": true,
+      "checkpoint_size_bytes": "48685932",
+      "checkpoint_mtime": "2026-06-04T16:52:30",
+      "checkpoint_sha256": "",
+      "best_alias": "D:\\fer-pi5\\checkpoints\\best_model_stage1_efficientnet_b0.pth",
+      "log_alias": "D:\\fer-pi5\\checkpoints\\train_stage1_efficientnet_b0_log.csv",
+      "project_root_in_config": "D:\\fer-pi5",
+      "train_csv": "D:\\fer-pi5\\data\\csv\\train.csv",
+      "val_csv": "D:\\fer-pi5\\data\\csv\\val.csv",
+      "test_csv": "D:\\fer-pi5\\data\\csv\\test.csv",
+      "pseudo_csv": "None",
+      "init_ckpt": "None",
+      "model_variant": "efficientnet_b0",
+      "batch_size": 98,
+      "epochs": 200,
+      "lr": 0.0003,
+      "weight_decay": 0.0001,
+      "seed": 42,
+      "sampling_strategy": "",
+      "balanced_per_class": "",
+      "balanced_samples_per_class_per_batch": "",
+      "balanced_sampler_samples_per_epoch": "",
+      "balanced_sampler_per_class_per_epoch": "",
+      "use_class_weights": "True",
+      "pseudo_loss_scale": "1.0",
+      "pseudo_conf_min": "0.0",
+      "logit_best_tau": "",
+      "logit_best_val_macro_f1": "",
+      "logit_best_test_macro_f1": "",
+      "train_class_counts_json": "",
+      "rank_by_val": 1,
+      "rank_by_test": 1
+    },
     {
       "run_id": "stage2_20260602_110224_seed42",
       "status": "finished",
@@ -56,8 +106,108 @@
       "logit_best_val_macro_f1": "",
       "logit_best_test_macro_f1": "",
       "train_class_counts_json": "",
-      "rank_by_val": 1,
-      "rank_by_test": 1
+      "rank_by_val": 2,
+      "rank_by_test": 3
+    },
+    {
+      "run_id": "stage2_20260605_002200_seed42",
+      "status": "finished",
+      "run_dir": "D:\\fer-pi5\\runs\\training\\stage2_20260605_002200_seed42",
+      "run_dir_rel": "runs\\training\\stage2_20260605_002200_seed42",
+      "best_epoch": 1,
+      "best_metric": 0.6858578678375366,
+      "val_macro_f1": 0.6858578678375366,
+      "test_macro_f1": 0.6942150465583017,
+      "val_accuracy": 0.7809966551391803,
+      "test_accuracy": 0.7851553640281242,
+      "val_loss": 0.6501583885603179,
+      "test_loss": 0.6388832567925895,
+      "csv_epoch_count": 21,
+      "csv_last_epoch": 21,
+      "checkpoint_path": "D:\\fer-pi5\\runs\\training\\stage2_20260605_002200_seed42\\checkpoints\\best_model.pth",
+      "checkpoint_path_rel": "runs\\training\\stage2_20260605_002200_seed42\\checkpoints\\best_model.pth",
+      "checkpoint_exists": true,
+      "checkpoint_size_bytes": "48686380",
+      "checkpoint_mtime": "2026-06-05T00:27:39",
+      "checkpoint_sha256": "",
+      "best_alias": "D:\\fer-pi5\\checkpoints\\best_model_stage2_efficientnet_b0_balanced_clean.pth",
+      "log_alias": "D:\\fer-pi5\\checkpoints\\train_stage2_efficientnet_b0_balanced_clean_log.csv",
+      "project_root_in_config": "D:\\fer-pi5",
+      "train_csv": "D:\\fer-pi5\\data\\csv\\train.csv",
+      "val_csv": "D:\\fer-pi5\\data\\csv\\val.csv",
+      "test_csv": "D:\\fer-pi5\\data\\csv\\test.csv",
+      "pseudo_csv": "D:\\fer-pi5\\data\\csv\\pseudo_labeled_stage1_clean.csv",
+      "init_ckpt": "D:\\fer-pi5\\checkpoints\\best_model_stage1_efficientnet_b0.pth",
+      "model_variant": "efficientnet_b0",
+      "batch_size": 126,
+      "epochs": 200,
+      "lr": 1e-05,
+      "weight_decay": 0.0001,
+      "seed": 42,
+      "sampling_strategy": "balanced_batch",
+      "balanced_per_class": "auto_min",
+      "balanced_samples_per_class_per_batch": "18",
+      "balanced_sampler_samples_per_epoch": "",
+      "balanced_sampler_per_class_per_epoch": "",
+      "use_class_weights": "False",
+      "pseudo_loss_scale": "0.2",
+      "pseudo_conf_min": "0.82",
+      "logit_best_tau": "",
+      "logit_best_val_macro_f1": "",
+      "logit_best_test_macro_f1": "",
+      "train_class_counts_json": "",
+      "rank_by_val": 3,
+      "rank_by_test": 2
+    },
+    {
+      "run_id": "stage3_20260605_085032_seed42",
+      "status": "finished",
+      "run_dir": "D:\\fer-pi5\\runs\\training\\stage3_20260605_085032_seed42",
+      "run_dir_rel": "runs\\training\\stage3_20260605_085032_seed42",
+      "best_epoch": 50,
+      "best_metric": 0.6849860586071399,
+      "val_macro_f1": 0.6849860586071399,
+      "test_macro_f1": 0.6807750692304214,
+      "val_accuracy": 0.7751573218436419,
+      "test_accuracy": 0.7721138580176911,
+      "val_loss": 0.7706204091274614,
+      "test_loss": 0.7783891425689188,
+      "csv_epoch_count": 70,
+      "csv_last_epoch": 70,
+      "checkpoint_path": "D:\\fer-pi5\\runs\\training\\stage3_20260605_085032_seed42\\checkpoints\\best_model.pth",
+      "checkpoint_path_rel": "runs\\training\\stage3_20260605_085032_seed42\\checkpoints\\best_model.pth",
+      "checkpoint_exists": true,
+      "checkpoint_size_bytes": "48686508",
+      "checkpoint_mtime": "2026-06-05T13:55:04",
+      "checkpoint_sha256": "",
+      "best_alias": "D:\\fer-pi5\\checkpoints\\best_model_stage3_efficientnet_b0_final.pth",
+      "log_alias": "D:\\fer-pi5\\checkpoints\\train_stage3_efficientnet_b0_final_log.csv",
+      "project_root_in_config": "D:\\fer-pi5",
+      "train_csv": "D:\\fer-pi5\\data\\csv\\train.csv",
+      "val_csv": "D:\\fer-pi5\\data\\csv\\val.csv",
+      "test_csv": "D:\\fer-pi5\\data\\csv\\test.csv",
+      "pseudo_csv": "D:\\fer-pi5\\data\\csv\\pseudo_labeled_stage2_final.csv",
+      "init_ckpt": "D:\\fer-pi5\\checkpoints\\best_model_stage2_efficientnet_b0_balanced_clean.pth",
+      "model_variant": "efficientnet_b0",
+      "batch_size": 126,
+      "epochs": 120,
+      "lr": 5e-05,
+      "weight_decay": 0.0001,
+      "seed": 42,
+      "sampling_strategy": "balanced_batch",
+      "balanced_per_class": "auto_min",
+      "balanced_samples_per_class_per_batch": "18",
+      "balanced_sampler_samples_per_epoch": "",
+      "balanced_sampler_per_class_per_epoch": "",
+      "use_class_weights": "False",
+      "pseudo_loss_scale": "0.2",
+      "pseudo_conf_min": "0.0",
+      "logit_best_tau": "",
+      "logit_best_val_macro_f1": "",
+      "logit_best_test_macro_f1": "",
+      "train_class_counts_json": "",
+      "rank_by_val": 4,
+      "rank_by_test": 6
     },
     {
       "run_id": "stage2_20260601_165014_seed42",
@@ -106,8 +256,8 @@
       "logit_best_val_macro_f1": "",
       "logit_best_test_macro_f1": "",
       "train_class_counts_json": "",
-      "rank_by_val": 2,
-      "rank_by_test": 3
+      "rank_by_val": 5,
+      "rank_by_test": 5
     },
     {
       "run_id": "stage2_crt_head_20260602_172526_seed42",
@@ -156,8 +306,8 @@
       "logit_best_val_macro_f1": 0.6821638449915278,
       "logit_best_test_macro_f1": 0.6788692288900101,
       "train_class_counts_json": "{\"anger\": 9971, \"disgust\": 5525, \"fear\": 5486, \"happy\": 49352, \"sad\": 16181, \"surprise\": 11993, \"neutral\": 42597}",
-      "rank_by_val": 3,
-      "rank_by_test": 10
+      "rank_by_val": 6,
+      "rank_by_test": 13
     },
     {
       "run_id": "stage2_20260601_182200_seed42",
@@ -206,8 +356,8 @@
       "logit_best_val_macro_f1": "",
       "logit_best_test_macro_f1": "",
       "train_class_counts_json": "",
-      "rank_by_val": 4,
-      "rank_by_test": 11
+      "rank_by_val": 7,
+      "rank_by_test": 14
     },
     {
       "run_id": "stage2_20260602_150202_seed42",
@@ -256,8 +406,8 @@
       "logit_best_val_macro_f1": "",
       "logit_best_test_macro_f1": "",
       "train_class_counts_json": "",
-      "rank_by_val": 5,
-      "rank_by_test": 5
+      "rank_by_val": 8,
+      "rank_by_test": 8
     },
     {
       "run_id": "stage2_20260601_205513_seed42",
@@ -306,8 +456,8 @@
       "logit_best_val_macro_f1": "",
       "logit_best_test_macro_f1": "",
       "train_class_counts_json": "",
-      "rank_by_val": 6,
-      "rank_by_test": 2
+      "rank_by_val": 9,
+      "rank_by_test": 4
     },
     {
       "run_id": "stage2_20260603_111855_seed42",
@@ -356,8 +506,8 @@
       "logit_best_val_macro_f1": "",
       "logit_best_test_macro_f1": "",
       "train_class_counts_json": "",
-      "rank_by_val": 7,
-      "rank_by_test": 9
+      "rank_by_val": 10,
+      "rank_by_test": 12
     },
     {
       "run_id": "stage1_20260531_160014_seed42",
@@ -406,8 +556,8 @@
       "logit_best_val_macro_f1": "",
       "logit_best_test_macro_f1": "",
       "train_class_counts_json": "",
-      "rank_by_val": 8,
-      "rank_by_test": 4
+      "rank_by_val": 11,
+      "rank_by_test": 7
     },
     {
       "run_id": "stage3_20260603_145412_seed42",
@@ -456,8 +606,8 @@
       "logit_best_val_macro_f1": "",
       "logit_best_test_macro_f1": "",
       "train_class_counts_json": "",
-      "rank_by_val": 9,
-      "rank_by_test": 6
+      "rank_by_val": 12,
+      "rank_by_test": 9
     },
     {
       "run_id": "stage2_20260603_122631_seed42",
@@ -506,8 +656,8 @@
       "logit_best_val_macro_f1": "",
       "logit_best_test_macro_f1": "",
       "train_class_counts_json": "",
-      "rank_by_val": 10,
-      "rank_by_test": 8
+      "rank_by_val": 13,
+      "rank_by_test": 11
     },
     {
       "run_id": "stage2_20260602_150436_seed42",
@@ -556,8 +706,8 @@
       "logit_best_val_macro_f1": "",
       "logit_best_test_macro_f1": "",
       "train_class_counts_json": "",
-      "rank_by_val": 11,
-      "rank_by_test": 7
+      "rank_by_val": 14,
+      "rank_by_test": 10
     },
     {
       "run_id": "stage2_20260602_113406_seed42",
@@ -606,8 +756,8 @@
       "logit_best_val_macro_f1": "",
       "logit_best_test_macro_f1": "",
       "train_class_counts_json": "",
-      "rank_by_val": 12,
-      "rank_by_test": 12
+      "rank_by_val": 15,
+      "rank_by_test": 15
     }
   ]
 }

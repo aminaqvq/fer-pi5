@@ -34,7 +34,7 @@ install_balanced_batch_sampler(train_core)
 # ---------------------------------------------------------------------------
 # Override without editing this script:
 #   set FER_PROJECT_ROOT=F:\fer-pi5
-PROJECT_ROOT = Path(os.environ.get("FER_PROJECT_ROOT", r"/"))
+PROJECT_ROOT = Path(os.environ.get("FER_PROJECT_ROOT", r"D:\fer-pi5"))
 
 
 def _p(*parts: str) -> str:
@@ -71,11 +71,11 @@ CONFIG: Dict[str, Any] = {
     "require_pseudo_conf": True,
 
     # Start from the verified Stage1 teacher.
-    "init_ckpt": _p("checkpoints", "best_model_stage1_refactored.pth"),
+    "init_ckpt": _p("checkpoints", "best_model_stage1_efficientnet_b0.pth"),
 
     # Keep outputs isolated from normal Stage2 aliases.
-    "best_alias_name": "best_model_stage2_balanced_clean.pth",
-    "log_alias_name": "train_stage2_balanced_clean_log.csv",
+    "best_alias_name": "best_model_stage2_efficientnet_b0_balanced_clean.pth",
+    "log_alias_name": "train_stage2_efficientnet_b0_balanced_clean_log.csv",
     "write_checkpoint_alias": True,
     "alias_overwrite": True,
 
@@ -84,9 +84,11 @@ CONFIG: Dict[str, Any] = {
     "checkpoint_alias_dir": _p("checkpoints"),
 
     # Model
-    "model_variant": "large",
+    "model_variant": "efficientnet_b0",
     "num_classes": 7,
     "pretrained": False,
+    "aux_loss_weight": 0.0,
+    "use_checkpoint": False,
     "compile_model": False,
     "strict_checkpoint_load": True,
 
@@ -101,13 +103,14 @@ CONFIG: Dict[str, Any] = {
     "drop_last_train": True,
 
     # Optimizer
-    "lr": 1e-4,
+    "lr": 1e-5,
     "lr_floor": 1e-6,
-    "warmup_epochs": 2,
+    "warmup_epochs": 3,
     "weight_decay": 1e-4,
+    "grad_accum_steps": 1,
 
     # Loss
-    "label_smoothing": 0.04,
+    "label_smoothing": 0.05,
     "use_class_weights": False,
     "class_balance_beta": 0.995,
     "class_weights_from": "labeled_train",

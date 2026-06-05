@@ -54,9 +54,9 @@ def choose_existing(candidates: Iterable[Path], *, name: str) -> Path:
 # 3. Original run directory best checkpoint.
 TEACHER_CKPT = choose_existing(
     [
-        _p("checkpoints", "best_model_stage2_balanced_clean_0684451_LOCKED.pth"),
-        _p("checkpoints", "best_model_stage2_balanced_clean.pth"),
-        _p("runs", "training", "stage2_20260602_110224_seed42", "checkpoints", "best_model.pth"),
+        _p("checkpoints", "best_model_stage2_efficientnet_b0_balanced_clean.pth"),
+        _p("checkpoints", "best_model_stage2_efficientnet_b0_balanced_clean.pth"),
+        _p("runs", "training", "stage2", "checkpoints", "best_model.pth"),
     ],
     name="Stage2 historical-best teacher checkpoint",
 )
@@ -80,14 +80,14 @@ CONFIG = {
     "img_root": None,
 
     "teacher_ckpt": str(TEACHER_CKPT),
-    "model_variant": "large",
+    "model_variant": "efficientnet_b0",
     "num_classes": 7,
     "pretrained": False,
     "strict_checkpoint": True,
     "compile_model": False,
 
     "device": "cuda",
-    "batch_size": 256,
+    "batch_size": 128,
     "num_workers": 4,
     "pin_memory": True,
     "persistent_workers": True,

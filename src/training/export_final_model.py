@@ -47,18 +47,17 @@ DEFAULT_CONFIG: Dict[str, Any] = {
 
     # Final selected model: Stage2 balanced clean historical best.
     "ckpt_candidates": [
-        r"checkpoints\best_model_final_selected_stage2_balanced_clean_0684451.pth",
-        r"checkpoints\best_model_stage2_balanced_clean_0684451.pth",
-        r"checkpoints\best_model_stage2_balanced_clean.pth",
-        r"runs\training\stage2_20260602_110224_seed42\checkpoints\best_model.pth",
+        r"checkpoints\best_model_stage2_efficientnet_b0_balanced_clean.pth",
+        r"checkpoints\best_model_stage3_efficientnet_b0_final.pth",
     ],
     "ckpt": None,
 
-    "model_variant": "large",
+    "model_variant": "efficientnet_b0",
     "num_classes": 7,
     "img_size": 224,
     "device": "cpu",
     "pretrained": False,
+    "repvgg_deploy_convert": False,
     "strict_checkpoint_load": True,
 
     # Export layout. Keep NCHW because MobileNetV3 PyTorch model expects NCHW.
@@ -84,8 +83,8 @@ DEFAULT_CONFIG: Dict[str, Any] = {
     "verify_stride": 1,
 
     # Output.
-    "outdir": r"export\final_stage2_balanced_clean",
-    "artifact_stem": "fer_mbv3_stage2_final",
+    "outdir": r"export\final_efficientnet_b0",
+    "artifact_stem": "fer_efficientnet_b0_stage2_final",
     "overwrite": True,
 
     # Safety gates.
@@ -210,6 +209,13 @@ def build_and_load_model(cfg: Mapping[str, Any], ckpt_path: Path) -> nn.Module:
         device=device,
         strict=bool(cfg.get("strict_checkpoint_load", True)),
     )
+
+    # RepVGGplus: fuse multi-branch training graph into single-branch deploy graph.
+    if bool(cfg.get("repvgg_deploy_convert", False)):
+        if hasattr(model, "switch_repvggplus_to_deploy"):
+            print("[export] converting RepVGGplus training graph to deploy graph", flush=True)
+            model.switch_repvggplus_to_deploy()
+
     model.eval()
     return model
 

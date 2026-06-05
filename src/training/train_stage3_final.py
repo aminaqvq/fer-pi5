@@ -34,7 +34,7 @@ install_balanced_batch_sampler(train_core)
 # ---------------------------------------------------------------------------
 # Project root and checkpoint selection
 # ---------------------------------------------------------------------------
-PROJECT_ROOT = Path(os.environ.get("FER_PROJECT_ROOT", r"/"))
+PROJECT_ROOT = Path(os.environ.get("FER_PROJECT_ROOT", r"D:\fer-pi5"))
 
 
 def _p(*parts: str) -> str:
@@ -59,14 +59,7 @@ def choose_existing(candidates: Iterable[Path], *, name: str) -> Path:
     )
 
 
-STAGE2_BEST_CKPT = choose_existing(
-    [
-        PROJECT_ROOT / "checkpoints" / "best_model_stage2_balanced_clean_0684451_LOCKED.pth",
-        PROJECT_ROOT / "checkpoints" / "best_model_stage2_balanced_clean.pth",
-        PROJECT_ROOT / "runs" / "training" / "stage2_20260602_110224_seed42" / "checkpoints" / "best_model.pth",
-    ],
-    name="Stage2 historical-best checkpoint",
-)
+STAGE2_BEST_CKPT = PROJECT_ROOT / "checkpoints" / "best_model_stage2_efficientnet_b0_balanced_clean.pth"
 
 PSEUDO_STAGE2_FINAL = choose_existing(
     [
@@ -107,8 +100,8 @@ CONFIG: Dict[str, Any] = {
     "init_ckpt": str(STAGE2_BEST_CKPT),
 
     # Unique final aliases.
-    "best_alias_name": "best_model_stage3_final.pth",
-    "log_alias_name": "train_stage3_final_log.csv",
+    "best_alias_name": "best_model_stage3_efficientnet_b0_final.pth",
+    "log_alias_name": "train_stage3_efficientnet_b0_final_log.csv",
     "write_checkpoint_alias": True,
     "alias_overwrite": True,
 
@@ -117,9 +110,11 @@ CONFIG: Dict[str, Any] = {
     "checkpoint_alias_dir": _p("checkpoints"),
 
     # Model
-    "model_variant": "large",
+    "model_variant": "efficientnet_b0",
     "num_classes": 7,
     "pretrained": False,
+    "aux_loss_weight": 0.0,
+    "use_checkpoint": False,
     "compile_model": False,
     "strict_checkpoint_load": True,
 
@@ -136,13 +131,14 @@ CONFIG: Dict[str, Any] = {
     # Optimizer
     # Stage3 is a continuation from an already strong checkpoint.
     # Keep LR lower than Stage2.
-    "lr": 1e-4,
+    "lr": 5e-5,
     "lr_floor": 1e-6,
     "warmup_epochs": 2,
     "weight_decay": 1e-4,
+    "grad_accum_steps": 1,
 
     # Loss
-    "label_smoothing": 0.04,
+    "label_smoothing": 0.05,
     "use_class_weights": False,
     "class_balance_beta": 0.995,
     "class_weights_from": "labeled_train",

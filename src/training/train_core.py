@@ -23,6 +23,26 @@ import torch.nn.functional as F
 from torch.optim import AdamW
 from torch.utils.data import ConcatDataset, DataLoader, Dataset, Subset
 
+
+def unpack_model_output(output: Any) -> Tuple[torch.Tensor, Dict[str, torch.Tensor]]:
+    """Unpack model forward output into (main_logits, aux_logits_dict).
+
+    Works with:
+      - plain ``torch.Tensor`` (e.g. MobileNetV3) → (tensor, {})
+      - ``dict`` with key ``"main"`` (e.g. RepVGGplus training) →
+        (output["main"], {k: v for k, v in output.items() if k != "main"})
+    """
+    if isinstance(output, Mapping):
+        if "main" not in output:
+            raise ValueError("Model output dict must contain key 'main'")
+        main = output["main"]
+        aux = {k: v for k, v in output.items() if k != "main" and torch.is_tensor(v)}
+        return main, aux
+    if torch.is_tensor(output):
+        return output, {}
+    raise TypeError(f"Unsupported model output type: {type(output)}")
+
+
 try:
     from .dataset import FER2013Hybrid, IMG_SIZE
     from .metrics import LABELS, NUM_CLASSES, MetricAccumulator, evaluate_model, save_confusion_png, save_metrics_json
@@ -371,9 +391,10 @@ def build_datasets(cfg: Mapping[str, Any]) -> Tuple[Dataset, FER2013Hybrid, FER2
             raise FileNotFoundError(f"{name} does not exist: {p}")
 
     train_base = FER2013Hybrid(train_csv, img_base, "train", img_size=img_size, include_label=True, strict=True)
-    train_for_counts: Dataset = train_base
-    train_limited: Dataset = apply_per_class_limit(train_base, int(cfg.get("per_class_limit") or 0), int(cfg["seed"])) \
-        if cfg.get("dynamic_sampling") else train_base
+    per_class_limit_val = int(cfg.get("per_class_limit") or 0)
+    train_limited: Dataset = apply_per_class_limit(train_base, per_class_limit_val, int(cfg["seed"])) \
+        if per_class_limit_val > 0 else train_base
+    train_for_counts: Dataset = train_limited
 
     val_ds = FER2013Hybrid(val_csv, img_base, "val", img_size=img_size, include_label=True, strict=True)
     test_ds = FER2013Hybrid(test_csv, img_base, "test", img_size=img_size, include_label=True, strict=True)
@@ -516,9 +537,11 @@ def train_one_epoch(
     labeled_seen = 0
     pseudo_weight_sum = 0.0
     ramp = rampup_weight(epoch_index0, int(cfg.get("pseudo_rampup_epochs", 0)))
+    grad_accum_steps = max(1, int(cfg.get("grad_accum_steps", 1)))
     t0 = time.perf_counter()
 
-    for batch in loader:
+    optimizer.zero_grad(set_to_none=True)
+    for step, batch in enumerate(loader):
         xb, yb, sample_w, is_pseudo = unpack_train_batch(batch, device)
         if is_pseudo.numel() == sample_w.numel():
             pseudo_mask = is_pseudo.bool()
@@ -527,33 +550,60 @@ def train_one_epoch(
             pseudo_seen += int(pseudo_mask.sum().item())
             labeled_seen += int((~pseudo_mask).sum().item())
             pseudo_weight_sum += float(sample_w[pseudo_mask].sum().item()) if pseudo_mask.any() else 0.0
-        optimizer.zero_grad(set_to_none=True)
+
         with autocast_ctx(device_type=device.type, enabled=bool(amp_enabled)):
-            logits = model(xb)
-            loss = weighted_ce_loss(
+            output = model(xb)
+            logits, aux_logits = unpack_model_output(output)
+            main_loss = weighted_ce_loss(
                 logits,
                 yb,
                 sample_w,
                 class_weights=class_weights,
                 label_smoothing=float(cfg.get("label_smoothing", 0.0)),
             )
+            loss = main_loss
+
+            aux_loss_weight = float(cfg.get("aux_loss_weight", 0.0))
+            if aux_loss_weight > 0.0 and aux_logits:
+                aux_loss = torch.tensor(0.0, device=logits.device)
+                for _aux_name, aux_out in aux_logits.items():
+                    aux_loss = aux_loss + weighted_ce_loss(
+                        aux_out,
+                        yb,
+                        sample_w,
+                        class_weights=class_weights,
+                        label_smoothing=float(cfg.get("label_smoothing", 0.0)),
+                    )
+                aux_loss = aux_loss / max(1, len(aux_logits))
+                loss = main_loss + aux_loss_weight * aux_loss
+
+        # Scale loss for gradient accumulation
+        scaled_loss = loss / grad_accum_steps
+
         if scaler is not None and amp_enabled:
-            scaler.scale(loss).backward()
-            if bool(cfg.get("grad_clip", True)):
-                scaler.unscale_(optimizer)
-                torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=float(cfg.get("max_norm", 1.0)))
-            scaler.step(optimizer)
-            scaler.update()
+            scaler.scale(scaled_loss).backward()
         else:
-            loss.backward()
-            if bool(cfg.get("grad_clip", True)):
-                torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=float(cfg.get("max_norm", 1.0)))
-            optimizer.step()
+            scaled_loss.backward()
 
         n = int(yb.numel())
         loss_sum += float(loss.item()) * float(n)
         weight_sum += float(n)
         acc.update(logits.detach(), yb.detach(), loss=None)
+
+        # Optimizer step only after accumulation
+        is_accum_step = ((step + 1) % grad_accum_steps == 0) or ((step + 1) == len(loader))
+        if is_accum_step:
+            if scaler is not None and amp_enabled:
+                if bool(cfg.get("grad_clip", True)):
+                    scaler.unscale_(optimizer)
+                    torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=float(cfg.get("max_norm", 1.0)))
+                scaler.step(optimizer)
+                scaler.update()
+            else:
+                if bool(cfg.get("grad_clip", True)):
+                    torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=float(cfg.get("max_norm", 1.0)))
+                optimizer.step()
+            optimizer.zero_grad(set_to_none=True)
 
     metrics = acc.compute().to_dict()
     metrics.update({
@@ -695,6 +745,7 @@ def run_training(cfg: Mapping[str, Any]) -> Dict[str, Any]:
         device=device,
         verbose=True,
         compile_model=bool(cfg.get("compile_model", False)),
+        use_checkpoint=bool(cfg.get("use_checkpoint", False)),
     )
     init_ckpt = cfg.get("init_ckpt")
     if not _is_none_like(init_ckpt):
@@ -800,8 +851,15 @@ def run_training(cfg: Mapping[str, Any]) -> Dict[str, Any]:
             device=device,
             verbose=False,
             compile_model=False,
+            use_checkpoint=False,
         )
-        load_checkpoint_into_model(eval_model, best_path, device=device, strict=True)
+        load_checkpoint_into_model(
+            eval_model,
+            str(best_path),
+            device=device,
+            strict=bool(cfg.get("strict_checkpoint_load", True)),
+        )
+        eval_model.eval()
         criterion_eval = nn.CrossEntropyLoss(weight=class_weights, label_smoothing=0.0)
         val_best = evaluate_model(eval_model, val_loader, device, criterion=criterion_eval, num_classes=NUM_CLASSES, labels=LABELS)
         test_best = evaluate_model(eval_model, test_loader, device, criterion=criterion_eval, num_classes=NUM_CLASSES, labels=LABELS)

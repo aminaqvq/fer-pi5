@@ -4,7 +4,7 @@ import sys
 from pathlib import Path
 
 
-PROJECT_ROOT = Path(r"F:\fer-pi5")
+PROJECT_ROOT = Path(r"D:\fer-pi5")
 TRAINING_DIR = PROJECT_ROOT / "src" / "training"
 if str(TRAINING_DIR) not in sys.path:
     sys.path.insert(0, str(TRAINING_DIR))
@@ -19,15 +19,15 @@ CONFIG = {
     "unlabeled_csv": str(PROJECT_ROOT / "data" / "csv" / "unlabeled.csv"),
     "img_root": None,
 
-    "teacher_ckpt": str(PROJECT_ROOT / "checkpoints" / "best_model_stage1_refactored.pth"),
-    "model_variant": "large",
+    "teacher_ckpt": str(PROJECT_ROOT / "checkpoints" / "best_model_stage1_efficientnet_b0.pth"),
+    "model_variant": "efficientnet_b0",
     "num_classes": 7,
     "pretrained": False,
     "strict_checkpoint": True,
     "compile_model": False,
 
     "device": "cuda",
-    "batch_size": 256,
+    "batch_size": 128,
     "num_workers": 4,
     "pin_memory": True,
     "persistent_workers": True,

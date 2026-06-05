@@ -436,8 +436,12 @@ def score_unlabeled_pool(cfg: Mapping[str, Any], run_dir: Path, logger: logging.
         xb = xb.to(device, non_blocking=True)
 
         logits = model(xb)
+        if isinstance(logits, dict):
+            logits = logits.get("main", next(iter(logits.values())))
         if bool(cfg.get("tta_hflip", True)):
             logits_flip = model(torch.flip(xb, dims=[-1]))
+            if isinstance(logits_flip, dict):
+                logits_flip = logits_flip.get("main", next(iter(logits_flip.values())))
             logits = 0.5 * (logits + logits_flip)
 
         probs = F.softmax(logits, dim=1)
