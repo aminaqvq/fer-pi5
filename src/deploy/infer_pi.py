@@ -112,11 +112,20 @@ class Config:
     conf_th: float = 0.40
     pad_ratio: float = 0.18
 
-    # Optional display calibration. Disabled by default.
-    # If live demo is too often Unknown on minority classes, enable with --calibration
-    # or FER_ENABLE_CALIBRATION=1, then tune class_logit_bias/class_conf_th deliberately.
-    enable_prob_calibration: bool = False
-    class_logit_bias: Dict[str, float] = field(default_factory=dict)
+    # Optional display calibration. Enabled by default for realtime demo display.
+    # This is a display-layer calibration only; it does not change the model.
+    # Disable with --no-calibration if you want raw model behavior.
+    enable_prob_calibration: bool = True
+    class_logit_bias: Dict[str, float] = field(
+        default_factory=lambda: {
+            # Mild biases based on current EfficientNet-B0 Stage metrics: minority classes
+            # tend to be absorbed by neutral/happy. Keep values conservative.
+            "disgust": 0.20,
+            "fear": 0.22,
+            "sad": 0.12,
+            "anger": 0.05,
+        }
+    )
     class_conf_th: Dict[str, float] = field(
         default_factory=lambda: {
             "anger": 0.36,
@@ -172,6 +181,10 @@ class Config:
     # FPS / UI
     target_fps: int = 30
     wait_key_ms: int = 1
+    show_raw_top3: bool = False  # draw raw model top-3 under calibrated/display top-1
+
+    # Saving
+    enable_saving: bool = True  # set False via --no-save for pure live display
 
     # Logging
     log_dir: str = field(default_factory=lambda: _env_path("FER_LOG_DIR", _root_path("logs")))
@@ -970,6 +983,30 @@ def classify_track(
     return True, infer_ms, roi
 
 
+def color_for_track(tr: Track, cfg: Config) -> Tuple[int, int, int]:
+    """Return BGR color that matches the label decision logic.
+
+    Green means the class passed its threshold. Yellow means margin fallback was used.
+    Orange means a short hold-last display is being shown. Red means Unknown/Error.
+    """
+    label = tr.label or "Unknown"
+    decision = getattr(tr, "label_decision", "")
+
+    if label in ("", "Unknown", "Error"):
+        return (0, 0, 255)
+    if decision == "threshold":
+        return (0, 255, 0)
+    if decision == "margin_fallback":
+        return (0, 255, 255)
+    if decision == "hold_last":
+        return (0, 165, 255)
+
+    # Fallback for older state: keep color aligned with confidence threshold.
+    if tr.cls_conf >= conf_threshold_for(label, cfg):
+        return (0, 255, 0)
+    return (0, 255, 255)
+
+
 def draw_tracks(
     frame: np.ndarray,
     tracks: List[Track],
@@ -980,8 +1017,7 @@ def draw_tracks(
     H, W = frame.shape[:2]
     for tr in tracks:
         x1, y1, x2, y2 = scale_box(tr.box, scale_x, scale_y, W, H)
-        ok_cls = tr.label not in ("", "Unknown", "Error") and tr.cls_conf >= conf_threshold_for(tr.label, cfg)
-        color = (0, 255, 0) if ok_cls else (0, 0, 255)
+        color = color_for_track(tr, cfg)
         cv2.rectangle(frame, (x1, y1), (x2, y2), color, 2)
 
         if tr.landmarks:
@@ -998,11 +1034,23 @@ def draw_tracks(
             top_conf = float(tr.probs[top_idx])
             cv2.putText(
                 frame,
-                f"top={top_label}:{top_conf:.2f}",
+                f"top={top_label}:{top_conf:.2f} {getattr(tr, 'label_decision', '')}",
                 (x1, min(H - 10, y2 + 18)),
                 cv2.FONT_HERSHEY_SIMPLEX,
                 0.48,
                 (255, 255, 0),
+                1,
+            )
+
+        if cfg.show_raw_top3 and tr.raw_probs is not None:
+            raw_text = "raw " + topk_to_string(tr.raw_probs, 3)
+            cv2.putText(
+                frame,
+                raw_text[:80],
+                (x1, min(H - 10, y2 + 36)),
+                cv2.FONT_HERSHEY_SIMPLEX,
+                0.42,
+                (180, 220, 255),
                 1,
             )
 
@@ -1102,6 +1150,10 @@ def parse_args(argv: Optional[List[str]] = None) -> argparse.Namespace:
     parser.add_argument("--no-mirror", dest="mirror_flip", action="store_false", default=None)
     parser.add_argument("--calibration", dest="enable_prob_calibration", action="store_true", default=None)
     parser.add_argument("--no-calibration", dest="enable_prob_calibration", action="store_false")
+    parser.add_argument("--no-save", dest="enable_saving", action="store_false", default=None, help="Disable image saving; live display only")
+    parser.add_argument("--show-raw-top3", dest="show_raw_top3", action="store_true", default=None, help="Draw raw model top-3 probabilities; minimal overhead")
+    parser.add_argument("--conf-th", dest="conf_th", type=float, default=None, help="Global fallback confidence threshold")
+    parser.add_argument("--save-min-conf", dest="save_min_conf", type=float, default=None, help="Minimum confidence for saving images")
     parser.add_argument("--log-level", dest="log_level", default=None, choices=["DEBUG", "INFO", "WARNING", "ERROR"])
     return parser.parse_args(argv)
 
@@ -1124,6 +1176,10 @@ def apply_runtime_overrides(cfg: Config, args: argparse.Namespace) -> Config:
         "infer_every",
         "target_fps",
         "enable_prob_calibration",
+        "enable_saving",
+        "show_raw_top3",
+        "conf_th",
+        "save_min_conf",
     ):
         value = getattr(args, name, None)
         if value is not None:
@@ -1193,12 +1249,16 @@ def main(argv: Optional[List[str]] = None) -> None:
         CFG.enable_unknown_margin_fallback,
     )
     logger.info("Target FPS: %d", CFG.target_fps)
+    logger.info("Saving: enabled=%s save_dir=%s save_min_conf=%.2f", CFG.enable_saving, CFG.save_dir, CFG.save_min_conf)
+    logger.info("Display: show_raw_top3=%s color_logic=threshold/margin_fallback/hold_last/unknown", CFG.show_raw_top3)
 
     fer = TFLiteFER(CFG.tflite_path, num_threads=CFG.tflite_threads)
     validate_fer_runtime(fer, CFG)
     detector = FaceDetectorYuNet(CFG.yunet_path, (CFG.det_w, CFG.det_h), CFG.score_th, CFG.nms_th, CFG.top_k)
     tracker = LandmarkTracker(CFG.track_max_missing, CFG.track_max_dist)
-    saver = AsyncImageSaver(CFG.save_dir)
+    saver: Optional[AsyncImageSaver] = AsyncImageSaver(CFG.save_dir) if CFG.enable_saving else None
+    if not CFG.enable_saving:
+        logger.info("Image saving disabled by --no-save; save_dir remains configured as: %s", CFG.save_dir)
     cam: Optional[CameraReader] = None
 
     try:
@@ -1284,7 +1344,7 @@ def main(argv: Optional[List[str]] = None) -> None:
                         inferred_this_frame += 1
                         cls_times.append(infer_ms)
 
-                    if roi is not None and should_save_result(tr, CFG, best_records, frame_idx):
+                    if CFG.enable_saving and roi is not None and should_save_result(tr, CFG, best_records, frame_idx):
                         crop_path, annot_path = build_save_paths(CFG.save_dir, tr.label, tr.cls_conf, frame_idx, tr.track_id)
                         save_requests.append(
                             SaveRequest(
@@ -1343,8 +1403,9 @@ def main(argv: Optional[List[str]] = None) -> None:
                 )
 
                 for req in save_requests:
-                    saver.submit(req.crop_path, req.crop)
-                    saver.submit(req.annot_path, raw_annotated)
+                    if saver is not None:
+                        saver.submit(req.crop_path, req.crop)
+                        saver.submit(req.annot_path, raw_annotated)
                     best_records[req.label] = {"conf": req.conf, "sharpness": req.sharpness}
                     logger.info(
                         "Save requested: frame=%d track=%d label=%s conf=%.4f sharpness=%.2f crop=%s annot=%s",
@@ -1376,7 +1437,8 @@ def main(argv: Optional[List[str]] = None) -> None:
     finally:
         if cam is not None:
             cam.release()
-        saver.close()
+        if saver is not None:
+            saver.close()
         cv2.destroyAllWindows()
         logger.info("Bye")
 
