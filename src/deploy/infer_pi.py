@@ -1,3 +1,4 @@
+import argparse
 import os
 import sys
 import time
@@ -9,6 +10,7 @@ import logging.handlers
 import uuid
 from dataclasses import dataclass, field
 from datetime import datetime
+from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
 import cv2
@@ -34,11 +36,49 @@ JPEG_PARAMS = [cv2.IMWRITE_JPEG_QUALITY, 95]
 logger = logging.getLogger("fer_infer")
 
 
+# -----------------------------
+# Defaults / runtime overrides
+# -----------------------------
+def _default_project_root() -> str:
+    """Prefer env override, otherwise use the Pi deployment layout."""
+    return os.environ.get("FER_PROJECT_ROOT", "/home/amina/workspaces/fer-pi5")
+
+
+def _root_path(*parts: str) -> str:
+    return str(Path(_default_project_root()).joinpath(*parts))
+
+
+def _env_path(name: str, default: str) -> str:
+    return os.environ.get(name, default)
+
+
+def _parse_camera_source(value: str) -> Any:
+    text = str(value).strip()
+    if text.isdigit() or (text.startswith("-") and text[1:].isdigit()):
+        return int(text)
+    return text
+
+
 @dataclass
 class Config:
-    # Model files
-    tflite_path: str = "/home/amina/workspaces/fer-pi5/export/final_stage2_balanced_clean/fer_mbv3_stage2_final_fp16.tflite"
-    yunet_path: str = "/home/amina/workspaces/fer-pi5/src/deploy/face_detection_yunet_2023mar.onnx"
+    # Project / model files
+    # Export produced by EfficientNet-B0 Stage2:
+    #   export/final_efficientnet_b0/fer_efficientnet_b0_stage2_final_fp16.tflite
+    # Override any path from shell, e.g. FER_TFLITE_PATH=/path/model.tflite.
+    project_root: str = field(default_factory=_default_project_root)
+    model_name: str = "efficientnet_b0_stage2_fp16"
+    tflite_path: str = field(
+        default_factory=lambda: _env_path(
+            "FER_TFLITE_PATH",
+            _root_path("export", "final_efficientnet_b0", "fer_efficientnet_b0_stage2_final_fp16.tflite"),
+        )
+    )
+    yunet_path: str = field(
+        default_factory=lambda: _env_path(
+            "FER_YUNET_PATH",
+            _root_path("src", "deploy", "face_detection_yunet_2023mar.onnx"),
+        )
+    )
 
     # Camera
     camera_source: Any = 0
@@ -64,37 +104,28 @@ class Config:
     img_size: int = 224
     infer_every: int = 2
     max_faces: int = 4
-    max_infer_faces: int = 4  # 原代码默认 1 容易造成“只画框不分类”的错觉，这里默认最多 4 张脸都分类
+    # EfficientNet-B0 在 Pi5 上通常可实时跑 1~2 张脸；多脸时可通过 CLI 提高。
+    max_infer_faces: int = 2
     tflite_threads: int = 4
-    conf_th: float = 0.38  # 全局默认阈值降低一点，减少非弱项被判 Unknown
+    # EfficientNet-B0 Stage2 fp16 TFLite 已通过 PyTorch/ONNX/TFLite 预测一致性验证。
+    # 默认不做手工类别偏置，避免 demo 后处理掩盖模型真实行为。
+    conf_th: float = 0.40
     pad_ratio: float = 0.18
 
-    # 推理显示层校准：
-    # 基于 stage2 final_test 的 per-class F1/recall，三个弱项是 disgust、fear、sad。
-    # 这是后处理，不改变模型本身；只影响实时 demo 的显示/保存判断。
-    # bias 是 logit 偏置：0.22 约等于该类概率乘以 exp(0.22)=1.25 后再归一化。
-    # 想关掉就改成 False；想换弱项就改下面两个字典里的类别名。
-    enable_prob_calibration: bool = True
-    class_logit_bias: Dict[str, float] = field(
-        default_factory=lambda: {
-            # fear 仍然偏差时，不建议只继续猛加 disgust；否则 fear/neutral/sad 很容易被吸成 disgust。
-            # 这版把 fear 提高、disgust 稍微收一点，让 fear 更有机会成为 top1。
-            "disgust": 0.42,
-            "fear": 0.50,
-            "sad": 0.10,
-            "anger": 0.38,
-        }
-    )
-    # 每类阈值。这里把所有类都列出来，Unknown 会明显减少；保存仍由 save_min_conf 控制。
+    # Optional display calibration. Disabled by default.
+    # If live demo is too often Unknown on minority classes, enable with --calibration
+    # or FER_ENABLE_CALIBRATION=1, then tune class_logit_bias/class_conf_th deliberately.
+    enable_prob_calibration: bool = False
+    class_logit_bias: Dict[str, float] = field(default_factory=dict)
     class_conf_th: Dict[str, float] = field(
         default_factory=lambda: {
-            "anger": 0.28,
-            "disgust": 0.26,
-            "fear": 0.28,
-            "happy": 0.44,
-            "sad": 0.42,
-            "surprise": 0.40,
-            "neutral": 0.40,
+            "anger": 0.36,
+            "disgust": 0.30,
+            "fear": 0.30,
+            "happy": 0.48,
+            "sad": 0.34,
+            "surprise": 0.42,
+            "neutral": 0.44,
         }
     )
     weak_labels: Tuple[str, ...] = ("disgust", "fear", "sad")
@@ -126,7 +157,12 @@ class Config:
     track_max_dist: float = 90.0
 
     # Saving
-    save_dir: str = "/home/amina/workspaces/fer-pi5/docs/图片/best_by_class"
+    save_dir: str = field(
+        default_factory=lambda: _env_path(
+            "FER_SAVE_DIR",
+            _root_path("docs", "图片", "best_by_class"),
+        )
+    )
     save_min_conf: float = 0.55
     save_min_sharpness: float = 60.0
     save_unknown: bool = False
@@ -138,7 +174,7 @@ class Config:
     wait_key_ms: int = 1
 
     # Logging
-    log_dir: str = "logs"
+    log_dir: str = field(default_factory=lambda: _env_path("FER_LOG_DIR", _root_path("logs")))
     log_level: int = logging.INFO  # Pi 上 DEBUG 每帧写日志会拖慢实时性能
     log_every_n_frames: int = 10
     opencv_threads: int = 2  # 避免 OpenCV 与 TFLite 过度抢 CPU，可在 1/2/4 间实测
@@ -1049,8 +1085,94 @@ def log_frame_summary(
     )
 
 
-def main() -> None:
+def parse_args(argv: Optional[List[str]] = None) -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description="YuNet + EfficientNet-B0 TFLite FER realtime inference")
+    parser.add_argument("--model", dest="tflite_path", default=None, help="Path to EfficientNet-B0 fp16 .tflite")
+    parser.add_argument("--yunet", dest="yunet_path", default=None, help="Path to YuNet ONNX face detector")
+    parser.add_argument("--camera", dest="camera_source", default=None, help="Camera index or video path")
+    parser.add_argument("--save-dir", dest="save_dir", default=None, help="Directory for saved crops/annotated frames")
+    parser.add_argument("--log-dir", dest="log_dir", default=None, help="Directory for logs")
+    parser.add_argument("--threads", dest="tflite_threads", type=int, default=None, help="TFLite CPU threads")
+    parser.add_argument("--opencv-threads", dest="opencv_threads", type=int, default=None, help="OpenCV CPU threads")
+    parser.add_argument("--max-faces", dest="max_faces", type=int, default=None)
+    parser.add_argument("--max-infer-faces", dest="max_infer_faces", type=int, default=None)
+    parser.add_argument("--detect-every", dest="detect_every", type=int, default=None)
+    parser.add_argument("--infer-every", dest="infer_every", type=int, default=None)
+    parser.add_argument("--target-fps", dest="target_fps", type=int, default=None)
+    parser.add_argument("--no-mirror", dest="mirror_flip", action="store_false", default=None)
+    parser.add_argument("--calibration", dest="enable_prob_calibration", action="store_true", default=None)
+    parser.add_argument("--no-calibration", dest="enable_prob_calibration", action="store_false")
+    parser.add_argument("--log-level", dest="log_level", default=None, choices=["DEBUG", "INFO", "WARNING", "ERROR"])
+    return parser.parse_args(argv)
+
+
+def apply_runtime_overrides(cfg: Config, args: argparse.Namespace) -> Config:
+    env_cal = os.environ.get("FER_ENABLE_CALIBRATION")
+    if env_cal is not None:
+        cfg.enable_prob_calibration = env_cal.strip().lower() in {"1", "true", "yes", "on"}
+
+    for name in (
+        "tflite_path",
+        "yunet_path",
+        "save_dir",
+        "log_dir",
+        "tflite_threads",
+        "opencv_threads",
+        "max_faces",
+        "max_infer_faces",
+        "detect_every",
+        "infer_every",
+        "target_fps",
+        "enable_prob_calibration",
+    ):
+        value = getattr(args, name, None)
+        if value is not None:
+            setattr(cfg, name, value)
+
+    if args.camera_source is not None:
+        cfg.camera_source = _parse_camera_source(args.camera_source)
+    if args.mirror_flip is not None:
+        cfg.mirror_flip = bool(args.mirror_flip)
+    if args.log_level is not None:
+        cfg.log_level = getattr(logging, args.log_level.upper())
+
+    return cfg
+
+
+def validate_runtime_files(cfg: Config) -> None:
+    missing = []
+    for label, path in (("TFLite model", cfg.tflite_path), ("YuNet model", cfg.yunet_path)):
+        if not os.path.exists(path):
+            missing.append(f"{label} not found: {path}")
+    if missing:
+        raise FileNotFoundError("\n".join(missing))
+
+
+def validate_fer_runtime(fer: TFLiteFER, cfg: Config) -> None:
+    out_numel = int(np.prod(fer.out_det["shape"]))
+    if out_numel != len(LABELS):
+        raise RuntimeError(f"TFLite output size mismatch: output_numel={out_numel}, labels={len(LABELS)}")
+
+    if cfg.img_size not in fer.input_shape:
+        logger.warning("Configured img_size=%d not found in model input shape=%s", cfg.img_size, fer.input_shape)
+
+    logger.info(
+        "Runtime model summary: model_name=%s path=%s input_shape=%s layout=%s output_shape=%s preprocess=%s/%s",
+        cfg.model_name,
+        cfg.tflite_path,
+        fer.input_shape,
+        fer.layout,
+        tuple(int(v) for v in fer.out_det["shape"]),
+        cfg.preprocess_mode,
+        cfg.color_order,
+    )
+
+
+def main(argv: Optional[List[str]] = None) -> None:
     global logger
+    args = parse_args(argv)
+    apply_runtime_overrides(CFG, args)
+    validate_runtime_files(CFG)
     logger = setup_logger(log_dir=CFG.log_dir, level=CFG.log_level)
     try:
         cv2.setNumThreads(int(getattr(CFG, "opencv_threads", 0)))
@@ -1073,6 +1195,7 @@ def main() -> None:
     logger.info("Target FPS: %d", CFG.target_fps)
 
     fer = TFLiteFER(CFG.tflite_path, num_threads=CFG.tflite_threads)
+    validate_fer_runtime(fer, CFG)
     detector = FaceDetectorYuNet(CFG.yunet_path, (CFG.det_w, CFG.det_h), CFG.score_th, CFG.nms_th, CFG.top_k)
     tracker = LandmarkTracker(CFG.track_max_missing, CFG.track_max_dist)
     saver = AsyncImageSaver(CFG.save_dir)
