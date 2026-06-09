@@ -121,7 +121,7 @@ class Config:
         default_factory=lambda: {
             # Mild biases based on current EfficientNet-B0 Stage metrics: minority classes
             # tend to be absorbed by neutral/happy. Keep values conservative.
-            "disgust": 0.20,
+            "disgust": 0.40,
             "fear": 0.22,
             "sad": 0.12,
             "anger": 0.05,
@@ -198,7 +198,7 @@ class Config:
     log_dir: str = field(default_factory=lambda: _env_path("FER_LOG_DIR", _root_path("logs")))
     log_level: int = logging.INFO  # Pi 上 DEBUG 每帧写日志会拖慢实时性能
     log_every_n_frames: int = 10
-    opencv_threads: int = 2  # 避免 OpenCV 与 TFLite 过度抢 CPU，可在 1/2/4 间实测
+    opencv_threads: int = 1  # 避免 OpenCV 与 TFLite 过度抢 CPU，可在 1/2/4 间实测
 
 
 CFG = Config()
@@ -521,6 +521,82 @@ class FaceDetectorYuNet:
             box = clamp_box([int(x * sx), int(y * sy), int((x + w) * sx), int((y + h) * sy)], W, H)
             landmarks = [(int(px * sx), int(py * sy)) for px, py in lms]
             out.append({"box": box, "landmarks": landmarks, "det_conf": score})
+
+        return out
+
+    def detect_in_roi(
+        self,
+        frame_bgr: np.ndarray,
+        prev_boxes: List[List[int]],
+        det_w: int,
+        det_h: int,
+        expand_ratio: float = 0.4,
+    ) -> List[Dict[str, Any]]:
+        """轻量级ROI检测：只在上一帧检测框周围搜索。
+
+        用于间隔帧快速检测，避免全帧检测的开销。如果找不到人脸，返回修正后的旧框。
+        """
+        H, W = frame_bgr.shape[:2]
+
+        if not prev_boxes:
+            # 没有上一帧的框，降级到全帧检测
+            return self.detect(frame_bgr, det_w, det_h)
+
+        # 为每个旧框创建一个扩展的搜索ROI
+        out: List[Dict[str, Any]] = []
+
+        for prev_box in prev_boxes:
+            x1, y1, x2, y2 = clamp_box(prev_box, W, H)
+            bw, bh = x2 - x1, y2 - y1
+
+            # 扩展ROI
+            expand_w = int(bw * expand_ratio / 2)
+            expand_h = int(bh * expand_ratio / 2)
+            roi_x1 = max(0, x1 - expand_w)
+            roi_y1 = max(0, y1 - expand_h)
+            roi_x2 = min(W, x2 + expand_w)
+            roi_y2 = min(H, y2 + expand_h)
+
+            roi = frame_bgr[roi_y1:roi_y2, roi_x1:roi_x2]
+            if roi.size == 0:
+                continue
+
+            roi_h, roi_w = roi.shape[:2]
+            small = cv2.resize(roi, (det_w, det_h), interpolation=cv2.INTER_LINEAR)
+            self.det.setInputSize((det_w, det_h))
+
+            faces = self.det.detect(small)
+            if isinstance(faces, tuple):
+                faces = faces[1]
+
+            if faces is not None and len(faces) > 0:
+                # 有检测到的脸，缩放回原始坐标
+                sx = roi_w / float(det_w)
+                sy = roi_h / float(det_h)
+
+                for f in faces.astype(np.float32):
+                    x, y, w, h = f[0:4]
+                    lms = f[4:14].reshape(5, 2)
+                    score = float(f[14])
+
+                    # 转换回原图坐标
+                    abs_x = int(x * sx) + roi_x1
+                    abs_y = int(y * sy) + roi_y1
+                    abs_x2 = int((x + w) * sx) + roi_x1
+                    abs_y2 = int((y + h) * sy) + roi_y1
+
+                    box = clamp_box([abs_x, abs_y, abs_x2, abs_y2], W, H)
+                    landmarks = [
+                        (int(px * sx) + roi_x1, int(py * sy) + roi_y1) for px, py in lms
+                    ]
+                    out.append({"box": box, "landmarks": landmarks, "det_conf": score})
+            else:
+                # 在ROI内没检测到，保持上一帧的框但置信度略降（表示这是旧结果）
+                out.append({
+                    "box": prev_box,
+                    "landmarks": [],  # ROI检测模式下不更新landmark
+                    "det_conf": 0.65,  # 标记为低可信度的旧框
+                })
 
         return out
 
@@ -1205,7 +1281,10 @@ def parse_args(argv: Optional[List[str]] = None) -> argparse.Namespace:
     parser.add_argument("--opencv-threads", dest="opencv_threads", type=int, default=None, help="OpenCV CPU threads")
     parser.add_argument("--max-faces", dest="max_faces", type=int, default=None)
     parser.add_argument("--max-infer-faces", dest="max_infer_faces", type=int, default=None)
-    parser.add_argument("--detect-every", dest="detect_every", type=int, default=None)
+    parser.add_argument("--detect-every", dest="detect_every", type=int, default=None, help="Full detect every N frames; 2 recommended for 30fps baseline")
+    parser.add_argument("--detect-roi", dest="detect_roi_on_interval", action="store_true", default=None, help="Enable lightweight ROI detection on interval frames")
+    parser.add_argument("--no-detect-roi", dest="detect_roi_on_interval", action="store_false", help="Disable ROI detection; use tracker result on interval frames")
+    parser.add_argument("--detect-roi-expand", dest="detect_roi_expand_ratio", type=float, default=None, help="ROI expand ratio for interval frame detection (0.4 default)")
     parser.add_argument("--infer-every", dest="infer_every", type=int, default=None)
     parser.add_argument("--track-max-missing", dest="track_max_missing", type=int, default=None, help="Internal tracker stale-frame limit")
     parser.add_argument("--track-max-dist", dest="track_max_dist", type=float, default=None, help="Max landmark/center distance for matching tracks")
@@ -1241,6 +1320,8 @@ def apply_runtime_overrides(cfg: Config, args: argparse.Namespace) -> Config:
         "max_faces",
         "max_infer_faces",
         "detect_every",
+        "detect_roi_on_interval",
+        "detect_roi_expand_ratio",
         "infer_every",
         "target_fps",
         "track_max_missing",
@@ -1397,8 +1478,11 @@ def main(argv: Optional[List[str]] = None) -> None:
             proc_h, proc_w = proc_frame.shape[:2]
             latency_ms = (time.perf_counter() - frame_ts) * 1000.0
 
-            # Detect / track
+            # Detect / track：混合检测模式
+            # - 每 detect_every 帧做一次完整YuNet检测（全帧）
+            # - 中间帧做轻量级ROI检测（只在上一帧框周围检测）
             if frame_idx % max(1, CFG.detect_every) == 0:
+                # 完整检测帧
                 try:
                     t_det = time.perf_counter()
                     detections = detector.detect(proc_frame, CFG.det_w, CFG.det_h)
@@ -1409,7 +1493,33 @@ def main(argv: Optional[List[str]] = None) -> None:
                     logger.exception("Detection failed: frame=%d", frame_idx)
                     tracks = tracker.get_active(frame_idx)
             else:
-                tracks = tracker.get_active(frame_idx)
+                # 中间帧：轻量级ROI检测
+                if getattr(CFG, "detect_roi_on_interval", False):
+                    try:
+                        t_det = time.perf_counter()
+                        prev_boxes = [tr.box for tr in tracker.get_active(frame_idx)]
+                        detections = detector.detect_in_roi(
+                            proc_frame,
+                            prev_boxes,
+                            CFG.det_w,
+                            CFG.det_h,
+                            expand_ratio=getattr(CFG, "detect_roi_expand_ratio", 0.4),
+                        )
+                        last_det_ms = (time.perf_counter() - t_det) * 1000.0
+                        tracks = tracker.update(detections, frame_idx)
+                        logger.debug(
+                            "Detect(ROI): frame=%d prev_boxes=%d faces=%d det_ms=%.2f",
+                            frame_idx,
+                            len(prev_boxes),
+                            len(detections),
+                            last_det_ms,
+                        )
+                    except Exception:
+                        logger.exception("ROI detection failed: frame=%d", frame_idx)
+                        tracks = tracker.get_active(frame_idx)
+                else:
+                    # ROI检测禁用，直接用tracker结果
+                    tracks = tracker.get_active(frame_idx)
 
             tracks = tracks[: max(0, CFG.max_faces)]
             visible_tracks = filter_tracks_for_realtime_display(tracks, frame_idx, CFG)
